@@ -141,5 +141,61 @@ void analysis_print(struct Analysis res, int nbytes, int hist) {
 }
 
 void stats_print(Stats res, int hist) {
-    
+    int i, max = 0, count = 0, median = 0, q1 = 0, q3 = 0;
+    if (hist != 0) {
+        // Print histogram
+        printf("\n");
+    }
+    printf("Count: %d\n", res.n);
+
+    printf("Mean: %f.6\n", res.sum / (float)res.n);
+
+    printf("Mode: ");
+    for (i = 0; i < NVAL; ++i) {
+        if (res.histogram[i] > max) {
+            max = res.histogram[i];
+            count = 0;
+        }
+        else if (res.histogram[i] == max) {
+            ++count;
+        }
+    }
+    for (i = 0; i < NVAL; ++i) {
+        if (res.histogram[i] == max) {
+            printf("%d", i);
+            if (count-- > 0) {
+                printf(" ");
+            }
+        }
+    }
+    printf("\n");
+
+    i = 0;
+    count = res.n;
+    while (count > 0) {
+        count -= res.histogram[i++]; // MAYBEEEEEEEEEEE
+        if (count < res.n / 4)
+            q1 = i - 1;
+        if (count < res.n / 2)
+            median = i - 1;
+        if (count < res.n - res.n / 4)
+            q3 = i - 1;
+    }
+    printf("Median: %f.6\n", median);
+    printf("Q1: %f.6\n", q1);
+    printf("Q3: %f.6\n", q3);
+
+    max = 0;
+    for (i = 0; i < NVAL; ++i) {
+        if (res.histogram[i] > 0) {
+            printf("Min: %d\n", i);
+            break;
+        }
+    }
+    for (i = NVAL - 1; i >= 0; ++i) {
+        if (res.histogram[i] > 0) {
+            printf("Max: $d\n", i);
+            break;
+        }
+    }
 }
