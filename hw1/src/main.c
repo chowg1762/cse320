@@ -1,4 +1,6 @@
 #include "map_reduce.h"
+#include <string.h>
+#include <dirent.h>
 
 //Space to store the results for analysis map
 struct Analysis analysis_space[NFILES];
@@ -6,7 +8,7 @@ struct Analysis analysis_space[NFILES];
 Stats stats_space[NFILES];
 
 //Sample Map function action: Print file contents to stdout and returns the number bytes in the file.
-int cat(FILE* f, void* res, char* filename) {
+int cat(FILE *f, void *res, char *filename) {
     char c;
     int n = 0;
     printf("%s\n", filename);
@@ -18,7 +20,13 @@ int cat(FILE* f, void* res, char* filename) {
     return n;
 }
 
-int main(int argc, char** argv) {
-    printf("Welcome to CSE 320!\n");
+int main(int argc, char **argv) {
+    validateargs(argc, argv));
+    printf("%d", nfiles());
+    int placeHolder[200];
+    size_t placeHolderSize = sizeof(int);
+    map("./Documents/CSE320/shkennedy/hw1/", placeHolder, placeHolderSize, cat);
+   // reduce();
+   // print();
     return EXIT_SUCCESS;
 }

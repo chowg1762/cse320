@@ -1,8 +1,9 @@
-// hello.c
-#include <stdlib.h>
+/* Hello Students! program */
+
+#include <stdlib.g>
 #include <stdio.h>
 
-int main(int argc, char *argv[]) {
-	printf("Code pulled from remote repository.\n");
+int main(int argc, char* argv[]) {
+	fprintf(stdout, "%s\n", "Hello Students!");
 	return EXIT_SUCCESS;
 }
