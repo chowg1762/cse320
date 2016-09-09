@@ -59,7 +59,7 @@ int nfiles(char *dir) {
 
 int map(char *dir, void *results, size_t size, 
     int (*act)(FILE *f, void *res char *fn)) {
-    DIE* dirStream = opendir(dir);
+    DIR* dirStream = opendir(dir);
     // Error accessing directory
     if (dirStream == NULL) {
         closedir();
@@ -198,4 +198,49 @@ void stats_print(Stats res, int hist) {
             break;
         }
     }
+}
+
+int analysis(FILE *f, void *res, char *filename) {
+    struct Analysis newAnalysis = (struct Analysis)(*res);
+    strcpy(newAnalysis, filename);
+    newAnalysis.lnlen = 0;
+    int i;
+    for (i = 0; i < 128; ++i) {
+        newAnalysis.ascii[i] = 0;
+    }
+    int byteCount = 0, lineLength = 0, lineCount = 1, currChar;
+    while (currChar = fgetc(f) != EOF) {
+        if (currChar == 10) { // \n found
+            if (lineLength > newAnalysis.lnlen) {
+                newAnalysis.lnlen = lineLength;
+                newAnalysis.lnno = lineCount;
+            }
+            ++lineCount;
+            lineLength = 0;
+        }
+        ++newAnalysis.ascii[currChar];
+        ++byteCount;
+    }
+    return byteCount;
+}
+
+int stats(FILE *f, void *res, char *filename) {
+    Stats newStats = (Stats)(*res);
+    strcpy(newStats.filename, filename);
+    newStats.sum = 0;
+    newStats.n = 0;
+    int i;
+    for (i = 0; i < NVAL; ++i) {
+        newStats.histogram[i] = 0;
+    }
+    int currNum;
+    while (fscanf(f, "%d", &currNum) != EOF) {
+        if (currNum < 0 || currNum > 31) {
+            return -1;
+        }
+        ++newStats.histogram[currNum];
+        newStats.sum += currNum;
+        ++newStats.n;
+    }
+    return 0;
 }
