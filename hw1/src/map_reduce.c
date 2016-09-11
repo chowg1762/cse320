@@ -66,17 +66,17 @@ int map(char *dir, void *results, size_t size,
         return -1;
     }
     int sum = 0;
-    dirent *dirPtr;
-    while (dirPtr = readdir(dirStream) != NULL) {
+    struct dirent *dirPtr;
+    while ((dirPtr = readdir(dirStream)) != NULL) {
         // Get relative path of file
-        int pathLength = strlen(dir) + strlen(dirPtr.d_name) + 1;
+        int pathLength = strlen(dir) + strlen(dirPtr->d_name) + 1;
         char dirPath[pathLength];
         strcat(dirPath, dir);
-        strcat(dirPath, dirPtr.d_name);
+        strcat(dirPath, dirPtr->d_name);
         dirPath[pathLength - 1] = '\0';
         // Open file
-        FILE *filePtr
-        if (filePtr = fopen(dirPath, "r") == NULL) {
+        FILE *filePtr;
+        if ((filePtr = fopen(dirPath, "r")) == NULL) {
             closedir(dirStream);
             return -1;
         }
@@ -86,36 +86,38 @@ int map(char *dir, void *results, size_t size,
         // Close file
         fclose(filePtr);
     }
+    return sum;
 }
 
 struct Analysis analysis_reduce(int n, void *results) {
     struct Analysis reducedAna;
-    memset(reducedAna, 0, sizeof(reducedAna));
+    struct Analysis *resultsStructs = results;
+    memset(&reducedAna, 0, sizeof(reducedAna));
     int i, j;
     for (i = 0; i < n; ++i) {
         for (j = 0; j < 128; ++j) {
-            reducedAna.ascii[j] += (struct Analysis)(*results).ascii[j];
+            reducedAna.ascii[j] += resultsStructs[i].ascii[j];
         }
-        if ((struct Analysis)(*results).lnlen > reducedAna.lnlen) {
-            strcpy(reducedAna.filename, (struct Analysis)(*results).filename);
-            reducedAna.lnlen = (struct Analysis)(*results).lnlen; 
-            reducedAna.lnno = (struct Analysis)(*results).lnno);
+        if (resultsStructs[i].lnlen > reducedAna.lnlen) {
+            strcpy(reducedAna.filename, resultsStructs[i].filename);
+            reducedAna.lnlen = resultsStructs[i].lnlen; 
+            reducedAna.lnno = resultsStructs[i].lnno;
         }
-        results += sizeof(struct Analysis);
     }
     return reducedAna;
 }
 
 Stats stats_reduce(int n, void *results) {
     Stats reducedSta;
-    memset(reducedSta, 0, sizeof(reducedSta));
+    Stats *resultsStructs = results;
+    memset(&reducedSta, 0, sizeof(reducedSta));
     int i, j;
     for (i = 0; i < n; ++i) {
         for (j = 0; j < NVAL; ++j) {
-            reducedSta.histogram[j] += (Stats)(*results).histogram[j];
+            reducedSta.histogram[j] += resultsStructs[i].histogram[j];
         }
-        reducedSta.sum += (Stats)(*results).sum;
-        reducedSta.n += (Stats)(*results).n;
+        reducedSta.sum += resultsStructs[i].sum;
+        reducedSta.n += resultsStructs[i].n;
     }
     return reducedSta;
 }
@@ -141,7 +143,8 @@ void analysis_print(struct Analysis res, int nbytes, int hist) {
 }
 
 void stats_print(Stats res, int hist) {
-    int i, max = 0, count = 0, median = 0, q1 = 0, q3 = 0;
+    int i, max = 0, count = 0, median = 0; 
+    float q1 = 0, q3 = 0;
     if (hist != 0) {
         // Print histogram
         printf("\n");
@@ -178,7 +181,7 @@ void stats_print(Stats res, int hist) {
         if (count < res.n - res.n / 4)
             q3 = i - 1;
     }
-    printf("Median: %f.6\n", median);
+    printf("Median: %d.6\n", median);
     printf("Q1: %f.6\n", q1);
     printf("Q3: %f.6\n", q3);
     max = 0;
@@ -190,53 +193,53 @@ void stats_print(Stats res, int hist) {
     }
     for (i = NVAL - 1; i >= 0; ++i) {
         if (res.histogram[i] > 0) {
-            printf("Max: $d\n", i);
+            printf("Max: %d\n", i);
             break;
         }
     }
 }
 
 int analysis(FILE *f, void *res, char *filename) {
-    struct Analysis newAnalysis = (struct Analysis)(*res);
-    strcpy(newAnalysis, filename);
-    newAnalysis.lnlen = 0;
+    struct Analysis *newAnalysis = res;
+    strcpy(newAnalysis->filename, filename);
+    newAnalysis->lnlen = 0;
     int i;
     for (i = 0; i < 128; ++i) {
-        newAnalysis.ascii[i] = 0;
+        newAnalysis->ascii[i] = 0;
     }
     int byteCount = 0, lineLength = 0, lineCount = 1, currChar;
-    while (currChar = fgetc(f) != EOF) {
+    while ((currChar = fgetc(f)) != EOF) {
         if (currChar == 10) { // \n found
-            if (lineLength > newAnalysis.lnlen) {
-                newAnalysis.lnlen = lineLength;
-                newAnalysis.lnno = lineCount;
+            if (lineLength > newAnalysis->lnlen) {
+                newAnalysis->lnlen = lineLength;
+                newAnalysis->lnno = lineCount;
             }
             ++lineCount;
             lineLength = 0;
         }
-        ++newAnalysis.ascii[currChar];
+        ++newAnalysis->ascii[currChar];
         ++byteCount;
     }
     return byteCount;
 }
 
 int stats(FILE *f, void *res, char *filename) {
-    Stats newStats = (Stats)(*res);
-    strcpy(newStats.filename, filename);
-    newStats.sum = 0;
-    newStats.n = 0;
+    Stats *newStats = res;
+    strcpy(newStats->filename, filename);
+    newStats->sum = 0;
+    newStats->n = 0;
     int i;
     for (i = 0; i < NVAL; ++i) {
-        newStats.histogram[i] = 0;
+        newStats->histogram[i] = 0;
     }
     int currNum;
     while (fscanf(f, "%d", &currNum) != EOF) {
         if (currNum < 0 || currNum > 31) {
             return -1;
         }
-        ++newStats.histogram[currNum];
-        newStats.sum += currNum;
-        ++newStats.n;
+        ++newStats->histogram[currNum];
+        newStats->sum += currNum;
+        ++newStats->n;
     }
     return 0;
 }

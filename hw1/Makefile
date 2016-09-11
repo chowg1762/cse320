@@ -3,9 +3,9 @@ INCDIR = include
 BINDIR = bin
 BLDDIR = build
 RSRCDIR = rsrc
-CFLAGS = -Wall -Werror -I$(INCDIR)
+CFLAGS = -Wall -Werror -I$(INCDIR) -I/usr/include
 
-BIN = $(BINDIR)/map_reduce
+BIN = $(BINDIR)/mapreduce
 SRC =\
 	$(SRCDIR)/main.c \
 	$(SRCDIR)/map_reduce.c \
