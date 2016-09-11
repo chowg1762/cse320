@@ -147,9 +147,7 @@ void stats_print(Stats res, int hist) {
         printf("\n");
     }
     printf("Count: %d\n", res.n);
-
     printf("Mean: %f.6\n", res.sum / (float)res.n);
-
     printf("Mode: ");
     for (i = 0; i < NVAL; ++i) {
         if (res.histogram[i] > max) {
@@ -169,7 +167,6 @@ void stats_print(Stats res, int hist) {
         }
     }
     printf("\n");
-
     i = 0;
     count = res.n;
     while (count > 0) {
@@ -184,7 +181,6 @@ void stats_print(Stats res, int hist) {
     printf("Median: %f.6\n", median);
     printf("Q1: %f.6\n", q1);
     printf("Q3: %f.6\n", q3);
-
     max = 0;
     for (i = 0; i < NVAL; ++i) {
         if (res.histogram[i] > 0) {

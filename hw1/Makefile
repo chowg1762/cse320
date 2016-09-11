@@ -1,6 +1,25 @@
-# Define (atleast) the following targets: all, clean
-# all must build the executable file named mapreduce.
-# clean must remove all object files and executable files created.
-# Look at the introduction doc for information on how make a Makefile.
-# This make file must build according to the structure described in the
-# introduction doc, if it doesn't you will get a ZERO!
+SRCDIR = src
+INCDIR = include
+BINDIR = bin
+BLDDIR = build
+RSRCDIR = rsrc
+CFLAGS = -Wall -Werror -I$(INCDIR)
+
+BIN = $(BINDIR)/map_reduce
+SRC =\
+    $(SRCDIR)/main.c \
+    $(SRCDIR)/mapreduce.c \
+
+OBJS = $(SRC:$(SRCDIR)/%.c=$(BLDDIR)/%.o)
+
+all: $(BIN)
+
+$(BIN): $(OBJS)
+        gcc $(CFLAGS) -o $@ $(OBJS)
+
+$(BLDDIR)/%.o: $(SRCDIR)/%.c
+        gcc $(CFLAGS) -c $(SRCDIR)/%.c -o $@
+
+.PHONY: clean
+clean:
+        rm -f $(OBJS) $(BIN)
