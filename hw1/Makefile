@@ -7,19 +7,19 @@ CFLAGS = -Wall -Werror -I$(INCDIR)
 
 BIN = $(BINDIR)/map_reduce
 SRC =\
-    $(SRCDIR)/main.c \
-    $(SRCDIR)/mapreduce.c \
+	$(SRCDIR)/main.c \
+	$(SRCDIR)/map_reduce.c \
 
 OBJS = $(SRC:$(SRCDIR)/%.c=$(BLDDIR)/%.o)
 
 all: $(BIN)
 
 $(BIN): $(OBJS)
-        gcc $(CFLAGS) -o $@ $(OBJS)
+		gcc $(CFLAGS) -o $@ $(OBJS)
 
 $(BLDDIR)/%.o: $(SRCDIR)/%.c
-        gcc $(CFLAGS) -c $(SRCDIR)/%.c -o $@
+		gcc $(CFLAGS) -c $< -o $@
 
 .PHONY: clean
 clean:
-        rm -f $(OBJS) $(BIN)
+		rm -f $(OBJS) $(BIN)

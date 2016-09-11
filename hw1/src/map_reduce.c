@@ -3,13 +3,13 @@
 #include "map_reduce.h"
 
 void printhelp() {
-    printf("Usage:  ./mapreduce [h|v] FUNC DIR\n
-    \t\tFUNC    Which operation you would like to run on the data:\n
-    \t\tana - Analysis of various text files in a directory.\n
-    \t\tstats - Calculates stats on files which contain only numbers.\n
-    \t\tDIR     The directory in which the files are located.\n
-    \t\tOptions:\n
-    \t\t-h      Prints this help menu.\n
+    printf("Usage:  ./mapreduce [h|v] FUNC DIR\n\
+    \t\tFUNC    Which operation you would like to run on the data:\n\
+    \t\tana - Analysis of various text files in a directory.\n\
+    \t\tstats - Calculates stats on files which contain only numbers.\n\
+    \t\tDIR     The directory in which the files are located.\n\
+    \t\tOptions:\n\
+    \t\t-h      Prints this help menu.\n\
     \t\t-v      Prints the map function’s results, stating the file it’s from.\n");
 }
 
@@ -45,24 +45,24 @@ int nfiles(char *dir) {
     DIR* dirStream = opendir(dir);
     // Error accessing directory
     if (dirStream == NULL) {
-        closedir();
+        closedir(dirStream);
         return -1;
     }
     // Count files in directory
     int n = 0; 
     while (readdir(dirStream) != NULL)
         ++n;
-    if (closedir() == -1)
+    if (closedir(dirStream) == -1)
         return -1;
     return n;
 }
 
 int map(char *dir, void *results, size_t size, 
-    int (*act)(FILE *f, void *res char *fn)) {
+    int (*act)(FILE *f, void *res, char *fn)) {
     DIR* dirStream = opendir(dir);
     // Error accessing directory
     if (dirStream == NULL) {
-        closedir();
+        closedir(dirStream);
         return -1;
     }
     int sum = 0;
@@ -77,7 +77,7 @@ int map(char *dir, void *results, size_t size,
         // Open file
         FILE *filePtr
         if (filePtr = fopen(dirPath, "r") == NULL) {
-            closedir();
+            closedir(dirStream);
             return -1;
         }
         // Perform some action and store result

@@ -21,8 +21,8 @@ int cat(FILE *f, void *res, char *filename) {
 }
 
 int main(int argc, char **argv) {
-    validateargs(argc, argv));
-    printf("%d", nfiles());
+    validateargs(argc, argv);
+    printf("%d", nfiles(argv[argc - 1]));
     int placeHolder[200];
     size_t placeHolderSize = sizeof(int);
     map("./Documents/CSE320/shkennedy/hw1/", placeHolder, placeHolderSize, cat);
