@@ -29,6 +29,10 @@ int main(int argc, char **argv) {
             return EXIT_SUCCESS;
     }
     int i;
+    memset(analysis_space, 0, sizeof(analysis_space));
+    for (i = 0; i < NFILES; ++i) {
+        analysis_space[i].filename = malloc(MAX_FILENAME);
+    }
     memset(stats_space, 0, sizeof(stats_space));
     for (i = 0; i < NFILES; ++i) {
         stats_space[i].filename = malloc(MAX_FILENAME);
@@ -44,6 +48,7 @@ int main(int argc, char **argv) {
                 return EXIT_FAILURE;
             }
             reducedAna = analysis_reduce(numFiles, analysis_space);
+            printf("%s\n", reducedAna.filename);
             analysis_print(reducedAna, nBits, 1);
             break;
         case 2: // Stats

@@ -52,9 +52,14 @@ int nfiles(char *dir) {
         return -1;
     }
     // Count files in directory
-    int n = -1; 
-    while (readdir(dirStream) != NULL)
-        ++n;
+    int n = 0;
+    struct dirent *dirPtr; 
+    while ((dirPtr = readdir(dirStream)) != NULL) {
+        if (strcmp(dirPtr->d_name, ".") != 0 && 
+        strcmp(dirPtr->d_name, "..") != 0) {
+            ++n;
+        }
+    }
     if (closedir(dirStream) == -1)
         return -1;
     return n;
@@ -110,11 +115,12 @@ struct Analysis analysis_reduce(int n, void *results) {
             reducedAna.ascii[j] += resultsStructs[i].ascii[j];
         }
         if (resultsStructs[i].lnlen > reducedAna.lnlen) {
-            strcpy(reducedAna.filename, resultsStructs[i].filename);
+            memcpy(reducedAna.filename, resultsStructs[i].filename, sizeof);
             reducedAna.lnlen = resultsStructs[i].lnlen; 
             reducedAna.lnno = resultsStructs[i].lnno;
         }
     }
+    printf("%s\n", reducedAna.filename);
     return reducedAna;
 }
 
@@ -134,6 +140,7 @@ Stats stats_reduce(int n, void *results) {
 }
 
 void analysis_print(struct Analysis res, int nbytes, int hist) {
+    printf("FN(%lx) LNL(%lx)", (long)&res.filename, (long)&res.lnlen);
     printf("File: %s\n", res.filename);
     printf("Longest line length: %d\n", res.lnlen);
     printf("Longest line number: %d\n", res.lnno);
@@ -255,6 +262,8 @@ int analysis(FILE *f, void *res, char *filename) {
             }
             ++lineCount;
             lineLength = 0;
+        } else {
+            ++lineLength;
         }
         ++newAnalysis->ascii[currChar];
         ++byteCount;
