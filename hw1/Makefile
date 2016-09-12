@@ -3,7 +3,8 @@ INCDIR = include
 BINDIR = bin
 BLDDIR = build
 RSRCDIR = rsrc
-CFLAGS = -Wall -Werror -I$(INCDIR) -I/usr/include
+
+CFLAGS = -g -Wall -Werror -I$(INCDIR) -I/usr/include
 
 BIN = $(BINDIR)/mapreduce
 SRC =\

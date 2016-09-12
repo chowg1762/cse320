@@ -8,4 +8,6 @@
 //The max number of files a directory will have.
 #define NFILES 32
 
+#define MAX_FILENAME 256
+
 #endif

@@ -68,26 +68,36 @@ int map(char *dir, void *results, size_t size,
         closedir(dirStream);
         return -1;
     }
-    int sum = 0;
+    int sum = 0, i, j;
     struct dirent *dirPtr;
     while ((dirPtr = readdir(dirStream)) != NULL) {
-        // Get relative path of file
-        int pathLength = strlen(dir) + strlen(dirPtr->d_name) + 1;
-        char dirPath[pathLength];
-        strcat(dirPath, dir);
-        strcat(dirPath, dirPtr->d_name);
-        dirPath[pathLength - 1] = '\0';
-        // Open file
-        FILE *filePtr;
-        if ((filePtr = fopen(dirPath, "r")) == NULL) {
-            closedir(dirStream);
-            return -1;
+        if (strcmp(dirPtr->d_name, ".") == 0 && 
+        strcmp(dirPtr->d_name, "..") == 0) {
+            // Get relative path of file
+            int pathLength = strlen(dir) + strlen(dirPtr->d_name) + 2;
+            char dirPath[pathLength];
+            for (i = 0; i < strlen(dir); ++i) {
+                dirPath[i] = dir[i];
+            }
+            dirPath[i++] = '/';
+            for (j = 0; j < strlen(dirPtr->d_name); ++j) {
+                dirPath[i++] = dirPtr->d_name[j];
+            }
+            dirPath[pathLength - 1] = '\0';
+            printf("%s\n", dirPath);
+            // Open file
+            FILE *filePtr;
+            if ((filePtr = fopen(dirPath, "r")) == NULL) {
+                printf("%s ", dirPath);
+                closedir(dirStream);
+                return -1;
+            }
+            // Perform some action and store result
+            sum += (*act)(filePtr, results, dirPtr->d_name); // HERE
+            results += size;
+            // Close file
+            fclose(filePtr);
         }
-        // Perform some action and store result
-        sum += (*act)(filePtr, results, dirPath);
-        results += size;
-        // Close file
-        fclose(filePtr);
     }
     return sum;
 }
@@ -204,9 +214,12 @@ void stats_print(Stats res, int hist) {
 
 int analysis(FILE *f, void *res, char *filename) {
     struct Analysis *newAnalysis = res;
-    strcpy(newAnalysis->filename, filename);
-    newAnalysis->lnlen = 0;
     int i;
+    for (i = 0; i < strlen(filename); ++i) {
+        newAnalysis->filename[i] = filename[i];
+    }
+    newAnalysis->filename[++i] = '\0';
+    newAnalysis->lnlen = 0;
     for (i = 0; i < 128; ++i) {
         newAnalysis->ascii[i] = 0;
     }
@@ -227,11 +240,16 @@ int analysis(FILE *f, void *res, char *filename) {
 }
 
 int stats(FILE *f, void *res, char *filename) {
+    printf("%s\n", filename);
     Stats *newStats = res;
-    strcpy(newStats->filename, filename);
+    int i;
+    for (i = 0; i < strlen(filename); ++i) {
+        newStats->filename[i] = filename[i];
+    }
+    newStats->filename[++i] = '\0';
+    printf("%s\n", newStats->filename);
     newStats->sum = 0;
     newStats->n = 0;
-    int i;
     for (i = 0; i < NVAL; ++i) {
         newStats->histogram[i] = 0;
     }

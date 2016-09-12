@@ -28,6 +28,11 @@ int main(int argc, char **argv) {
         case 0:
             return EXIT_SUCCESS;
     }
+    int i;
+    memset(stats_space, 0, sizeof(stats_space));
+    for (i = 0; i < NFILES; ++i) {
+        stats_space[i].filename = malloc(MAX_FILENAME);
+    }
     int numFiles = nfiles(argv[argc - 1]);
     int nBits;
     struct Analysis reducedAna;
