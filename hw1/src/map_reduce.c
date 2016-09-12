@@ -107,20 +107,24 @@ int map(char *dir, void *results, size_t size,
 
 struct Analysis analysis_reduce(int n, void *results) {
     struct Analysis reducedAna;
+    reducedAna.filename = malloc(MAX_FILENAME);
+    reducedAna.lnlen = 0;
+    reducedAna.lnno = 0;
     struct Analysis *resultsStructs = results;
-    memset(&reducedAna, 0, sizeof(reducedAna));
     int i, j;
+    for (int i = 0; i < 128; ++i) {
+        reducedAna.ascii[i] = 0;
+    }
     for (i = 0; i < n; ++i) {
         for (j = 0; j < 128; ++j) {
             reducedAna.ascii[j] += resultsStructs[i].ascii[j];
         }
         if (resultsStructs[i].lnlen > reducedAna.lnlen) {
-            memcpy(reducedAna.filename, resultsStructs[i].filename, sizeof);
+            strcpy(reducedAna.filename, resultsStructs[i].filename);
             reducedAna.lnlen = resultsStructs[i].lnlen; 
             reducedAna.lnno = resultsStructs[i].lnno;
         }
     }
-    printf("%s\n", reducedAna.filename);
     return reducedAna;
 }
 
@@ -140,7 +144,6 @@ Stats stats_reduce(int n, void *results) {
 }
 
 void analysis_print(struct Analysis res, int nbytes, int hist) {
-    printf("FN(%lx) LNL(%lx)", (long)&res.filename, (long)&res.lnlen);
     printf("File: %s\n", res.filename);
     printf("Longest line length: %d\n", res.lnlen);
     printf("Longest line number: %d\n", res.lnno);

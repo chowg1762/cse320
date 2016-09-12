@@ -48,7 +48,6 @@ int main(int argc, char **argv) {
                 return EXIT_FAILURE;
             }
             reducedAna = analysis_reduce(numFiles, analysis_space);
-            printf("%s\n", reducedAna.filename);
             analysis_print(reducedAna, nBits, 1);
             break;
         case 2: // Stats
