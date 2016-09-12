@@ -29,16 +29,38 @@ int main(int argc, char **argv) {
             return EXIT_SUCCESS;
     }
     int numFiles = nfiles(argv[argc - 1]);
-    void *results, *act;
-    size_t size;
+    int nBits;
     switch (runChoice) {
         case 1: // Analysis
-            results = analysis_space;
-            act = analysis_reduce;
-            size = sizeof(Struct Analysis)    
+            nBits = map(argv[argc - 1], analysis_space, sizeof(struct Analysis), &analysis);
+            if (nBits == -1) {
+                return EXIT_FAILURE;
+            }
+            struct Analysis reducedAna = analysis_reduce(numFiles, analysis_space);
+            analysis_print(reducedAna, nBits, 1);
+            break;
+        case 2: // Stats
+            nBits = map(argv[argc - 1], stats_space, sizeof(Stats), &stats);
+            if (nBits == -1) {
+                return EXIT_FAILURE;
+            }
+            Stats reducedStats = stats_reduce(numFiles, stats_space);
+            stats_print(reducedStats, 1);
+            break;
+        case 3: // Analysis w/ flag
+            nBits = map(argv[argc - 1], analysis_space, sizeof(struct Analysis), &analysis);
+            if (nBits == -1) {
+                return EXIT_FAILURE;
+            }
+            struct Analysis reducedAnalysis = analysis_reduce(numFiles, analysis_space);
+            analysis_print(reducedAna, nBits, 1);
+        case 4: // Stats w/ flag
+            nBits = map(argv[argc - 1], stats_space, sizeof(Stats), &stats);
+            if (nBits == -1) {
+                return EXIT_FAILURE;
+            }
+            Stats reducedStats = stats_reduce(numFiles, stats_space);
+            stats_print(reducedStats, 1);
     }
-    map(argv[argc - 1], placeHolder, placeHolderSize, cat);
-   // reduce();
-   // print();
     return EXIT_SUCCESS;
 }
