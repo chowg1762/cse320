@@ -4,27 +4,29 @@
 
 void printhelp() {
     printf("Usage:  ./mapreduce [h|v] FUNC DIR\n\
-    \t\tFUNC    Which operation you would like to run on the data:\n\
+    \tFUNC    Which operation you would like to run on the data:\n\
     \t\tana - Analysis of various text files in a directory.\n\
     \t\tstats - Calculates stats on files which contain only numbers.\n\
-    \t\tDIR     The directory in which the files are located.\n\
-    \t\tOptions:\n\
-    \t\t-h      Prints this help menu.\n\
-    \t\t-v      Prints the map function’s results, stating the file it’s from.\n");
+    \tDIR     The directory in which the files are located.\n\n\
+    \tOptions:\n\
+    \t-h      Prints this help menu.\n\
+    \t-v      Prints the map function’s results, stating the file it’s from.\n");
 }
 
 int validateargs(int argc, char **argv) {
     // No args given
-    if (argc < 1)
+    if (argc == 1) {
+        printhelp();
         return -1;
+    }
     // Print menu
-    if (strcmp("-h", argv[0]) == 0) {
+    if (strcmp("-h", argv[1]) == 0) {
         printhelp();
         return 0;
     }
     // Optional flag
-    int opFlagSel = 0, i = 0;
-    if (argc == 3) {
+    int opFlagSel = 0, i = 1;
+    if (argc == 4) {
         if (strcmp("-v", argv[i++]) == 0) {
             opFlagSel = 1;
         } 
@@ -37,7 +39,8 @@ int validateargs(int argc, char **argv) {
     else if (strcmp("stats", argv[i]) == 0) {
         return 2 + opFlagSel * 2;
     }
-    // Invalid 
+    // Invalid
+    printhelp(); 
     return -1;
 }
 
@@ -49,7 +52,7 @@ int nfiles(char *dir) {
         return -1;
     }
     // Count files in directory
-    int n = 0; 
+    int n = -1; 
     while (readdir(dirStream) != NULL)
         ++n;
     if (closedir(dirStream) == -1)
