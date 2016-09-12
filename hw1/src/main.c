@@ -30,13 +30,15 @@ int main(int argc, char **argv) {
     }
     int numFiles = nfiles(argv[argc - 1]);
     int nBits;
+    struct Analysis reducedAna;
+    Stats reducedStats;
     switch (runChoice) {
         case 1: // Analysis
             nBits = map(argv[argc - 1], analysis_space, sizeof(struct Analysis), &analysis);
             if (nBits == -1) {
                 return EXIT_FAILURE;
             }
-            struct Analysis reducedAna = analysis_reduce(numFiles, analysis_space);
+            reducedAna = analysis_reduce(numFiles, analysis_space);
             analysis_print(reducedAna, nBits, 1);
             break;
         case 2: // Stats
@@ -44,7 +46,7 @@ int main(int argc, char **argv) {
             if (nBits == -1) {
                 return EXIT_FAILURE;
             }
-            Stats reducedStats = stats_reduce(numFiles, stats_space);
+            reducedStats = stats_reduce(numFiles, stats_space);
             stats_print(reducedStats, 1);
             break;
         case 3: // Analysis w/ flag
@@ -52,14 +54,15 @@ int main(int argc, char **argv) {
             if (nBits == -1) {
                 return EXIT_FAILURE;
             }
-            struct Analysis reducedAnalysis = analysis_reduce(numFiles, analysis_space);
+            reducedAna = analysis_reduce(numFiles, analysis_space);
             analysis_print(reducedAna, nBits, 1);
+            break;
         case 4: // Stats w/ flag
             nBits = map(argv[argc - 1], stats_space, sizeof(Stats), &stats);
             if (nBits == -1) {
                 return EXIT_FAILURE;
             }
-            Stats reducedStats = stats_reduce(numFiles, stats_space);
+            reducedStats = stats_reduce(numFiles, stats_space);
             stats_print(reducedStats, 1);
     }
     return EXIT_SUCCESS;
