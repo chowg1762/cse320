@@ -71,8 +71,8 @@ int map(char *dir, void *results, size_t size,
     int sum = 0, i, j;
     struct dirent *dirPtr;
     while ((dirPtr = readdir(dirStream)) != NULL) {
-        if (strcmp(dirPtr->d_name, ".") == 0 && 
-        strcmp(dirPtr->d_name, "..") == 0) {
+        if (strcmp(dirPtr->d_name, ".") != 0 && 
+        strcmp(dirPtr->d_name, "..") != 0) {
             // Get relative path of file
             int pathLength = strlen(dir) + strlen(dirPtr->d_name) + 2;
             char dirPath[pathLength];
@@ -84,11 +84,9 @@ int map(char *dir, void *results, size_t size,
                 dirPath[i++] = dirPtr->d_name[j];
             }
             dirPath[pathLength - 1] = '\0';
-            printf("%s\n", dirPath);
             // Open file
             FILE *filePtr;
             if ((filePtr = fopen(dirPath, "r")) == NULL) {
-                printf("%s ", dirPath);
                 closedir(dirStream);
                 return -1;
             }
@@ -156,14 +154,23 @@ void analysis_print(struct Analysis res, int nbytes, int hist) {
 }
 
 void stats_print(Stats res, int hist) {
-    int i, max = 0, count = 0, median = 0; 
-    float q1 = 0, q3 = 0;
+    int i, j, max = 0, count = 0; 
+    float q1 = 0, q3 = 0, median = 0;
     if (hist != 0) {
-        // Print histogram
+        printf("Histogram:\n");
+        for (i = 0; i < NVAL; ++i) {
+            if (res.histogram[i] > 0) {
+                printf("%d  :", i);
+                for (j = 0; j < res.histogram[i]; ++j) {
+                    printf("-");
+                }
+                printf("\n");
+            }
+        }
         printf("\n");
     }
     printf("Count: %d\n", res.n);
-    printf("Mean: %f.6\n", res.sum / (float)res.n);
+    printf("Mean: %f\n", res.sum / (float)res.n);
     printf("Mode: ");
     for (i = 0; i < NVAL; ++i) {
         if (res.histogram[i] > max) {
@@ -186,17 +193,33 @@ void stats_print(Stats res, int hist) {
     i = 0;
     count = res.n;
     while (count > 0) {
-        count -= res.histogram[i++]; // MAYBEEEEEEEEEEE
-        if (count < res.n / 4)
+        count -= res.histogram[i++]; 
+        if (count < (res.n * 0.75)) {
             q1 = i - 1;
-        if (count < res.n / 2)
-            median = i - 1;
-        if (count < res.n - res.n / 4)
-            q3 = i - 1;
+            break;
+        }
     }
-    printf("Median: %d.6\n", median);
-    printf("Q1: %f.6\n", q1);
-    printf("Q3: %f.6\n", q3);
+    i = 0;
+    count = res.n;
+    while (count > 0) {
+        count -= res.histogram[i++]; 
+        if (count < (res.n / 2)) {
+            median = i - 1;
+            break;
+        }
+    }
+    i = 0;
+    count = res.n;
+    while (count > 0) {
+        count -= res.histogram[i++]; 
+        if (count < (res.n * 0.25)) {
+            q3 = i - 1;
+            break;
+        }
+    }
+    printf("Median: %f\n", median);
+    printf("Q1: %f\n", q1);
+    printf("Q3: %f\n", q3);
     max = 0;
     for (i = 0; i < NVAL; ++i) {
         if (res.histogram[i] > 0) {
@@ -204,7 +227,7 @@ void stats_print(Stats res, int hist) {
             break;
         }
     }
-    for (i = NVAL - 1; i >= 0; ++i) {
+    for (i = NVAL - 1; i >= 0; --i) {
         if (res.histogram[i] > 0) {
             printf("Max: %d\n", i);
             break;
@@ -240,14 +263,12 @@ int analysis(FILE *f, void *res, char *filename) {
 }
 
 int stats(FILE *f, void *res, char *filename) {
-    printf("%s\n", filename);
     Stats *newStats = res;
     int i;
     for (i = 0; i < strlen(filename); ++i) {
         newStats->filename[i] = filename[i];
     }
     newStats->filename[++i] = '\0';
-    printf("%s\n", newStats->filename);
     newStats->sum = 0;
     newStats->n = 0;
     for (i = 0; i < NVAL; ++i) {
