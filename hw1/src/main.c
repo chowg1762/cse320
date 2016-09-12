@@ -64,6 +64,9 @@ int main(int argc, char **argv) {
                 return EXIT_FAILURE;
             }
             reducedAna = analysis_reduce(numFiles, analysis_space);
+            for (int i = 0; i < numFiles; ++i) {
+                analysis_print(analysis_space[i], 0, 0);
+            }
             analysis_print(reducedAna, nBits, 1);
             break;
         case 4: // Stats w/ flag
@@ -72,6 +75,9 @@ int main(int argc, char **argv) {
                 return EXIT_FAILURE;
             }
             reducedStats = stats_reduce(numFiles, stats_space);
+            for (int i = 0; i < numFiles; ++i) {
+                stats_print(stats_space[i], 0);
+            }
             stats_print(reducedStats, 1);
     }
     return EXIT_SUCCESS;

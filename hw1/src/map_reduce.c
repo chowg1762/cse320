@@ -147,9 +147,11 @@ void analysis_print(struct Analysis res, int nbytes, int hist) {
     printf("File: %s\n", res.filename);
     printf("Longest line length: %d\n", res.lnlen);
     printf("Longest line number: %d\n", res.lnno);
-    printf("Total bytes in directory: %d\n", nbytes);
-    if (hist == 0)
+    if (hist == 0) {
+        printf("\n");
         return;
+    }
+    printf("Total bytes in directory: %d\n", nbytes);
     printf("Histogram:\n");
     int i, j;
     for (i = 0; i < 128; ++i) {
@@ -178,6 +180,8 @@ void stats_print(Stats res, int hist) {
             }
         }
         printf("\n");
+    } else {
+        printf("File: %s\n", res.filename);
     }
     printf("Count: %d\n", res.n);
     printf("Mean: %f\n", res.sum / (float)res.n);
@@ -243,6 +247,8 @@ void stats_print(Stats res, int hist) {
             break;
         }
     }
+    if (hist == 0)
+        printf("\n");
 }
 
 int analysis(FILE *f, void *res, char *filename) {
