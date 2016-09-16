@@ -1,12 +1,12 @@
+#ifndef UTF_CONVERTER
+#define UTF_CONVERTER
+
 #include <stdio.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include "utfconverter.h"
 #include <getopt.h>
-#include <utfconverter.h>
 #include <string.h>
-#include "utfconverter.c"
 #include <stdbool.h>
 
 
@@ -41,12 +41,12 @@ typedef struct Glyph {
 extern char* filename;
 
 /** The usage statement. */
-const char* USAGE = { 
-"Usage:  ./utfconverter FILENAME [OPTION]\n\t",
-"./utfconverter -h\t\t\tDisplays this usage statement.\n\t",
-"./utfconverter --help\t\t\tDisplays this usage statement.\n\t"
-"./utfconverter --UTF-16=ENDIANNESS\tEndianness to convert to.\n",
-}
+const char* const USAGE[] = { 
+	"Usage:  ./utfconverter FILENAME [OPTION]\n\t",
+	"./utfconverter -h\t\t\tDisplays this usage statement.\n\t",
+	"./utfconverter --help\t\t\tDisplays this usage statement.\n\t"
+	"./utfconverter --UTF-16=ENDIANNESS\tEndianness to convert to.\n",
+};
 
 /** Which endianness to convert to. */
 extern endianness conversion;
@@ -74,7 +74,7 @@ Glyph* swap_endianness P((Glyph*));
  * 			file.
  * @return Returns a pointer to the filled-in glyph.
  */
-Glyph* fill_glyph P((Glyph*, unsigned int, endianness, int*));
+Glyph* fill_glyph P((Glyph*, unsigned int*, endianness, int*));
 
 /**
  * Writes the given glyph's contents to stdout.
@@ -105,3 +105,5 @@ void print_help P((void));
  * to close.
  */
 void quit_converter P((int));
+
+#endif
