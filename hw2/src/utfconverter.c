@@ -4,7 +4,7 @@ char* filename;
 endianness source;
 
 int 
-main(argv)
+main(int argc, argv)
 char** argv;
 {
 	/* After calling parse_args(), filename and conversion should be set. */
