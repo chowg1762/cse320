@@ -10,9 +10,9 @@
 #include <stdbool.h>
 
 
-#define MAX_BYTES 2
-#define SURROGATE_SIZE 2
-#define NON_SURROGATE_SIZE 1
+#define MAX_BYTES 4
+#define SURROGATE_SIZE 4
+#define NON_SURROGATE_SIZE 2
 #define NO_FD -1
 #define OFFSET 4
 
@@ -29,6 +29,9 @@
 
 /** The enum for endianness. */
 typedef enum {LITTLE, BIG} endianness;
+
+/** The enum for encoding. */
+typedef enum {UTF_8, UTF_16} encoding;
 
 /** The struct for a codepoint glyph. */
 typedef struct Glyph {
@@ -54,6 +57,9 @@ extern endianness conversion;
 /** Which endianness the source file is in. */
 extern endianness source;
 
+/** Which encoding the source file is in. */
+extern 
+
 /**
  * A function that swaps the endianness of the bytes of an encoding from
  * LE to BE and vice versa.
@@ -62,6 +68,16 @@ extern endianness source;
  * @return Returns a pointer to the glyph that has been swapped.
  */
 Glyph* swap_endianness P((Glyph*));
+
+/**
+* A function that converts a UTF-8 glyph to a UTF-16LE or UTF-16BE
+* glyph, and returns the result as a pointer to the converted glyph.
+*
+* @param glyph The UTF-8 glyph to convert.
+* @param end   The endianness to convert to (UTF-16LE or UTF-16BE).
+* @return The converted glyph
+*/
+Glyph* convert P((Glyph* glyph, endianness end));
 
 /**
  * Fills in a glyph with the given data in data[2], with the given endianness 

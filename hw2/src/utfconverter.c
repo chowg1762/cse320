@@ -1,11 +1,13 @@
 #include "utfconverter.h"
 
 char* filename;
-endianness source;
-endianness conversion;
+endianness srcEndian;
+endianness convEndian;
+encoding srcEncoding;
+encoding convEncoding;
 
 int main(int argc, char** argv) {
-	/* After calling parse_args(), filename and conversion should be set. */
+	/* After calling parse_args(), filename and convEndian should be set. */
 	parse_args(argc, argv);
 
 	int fd = open("rsrc/utf16le.txt", O_RDONLY); 
@@ -17,16 +19,20 @@ int main(int argc, char** argv) {
 	/* Handle BOM bytes for UTF16 specially. 
          * Read our values into the first and second elements. */
 	if((rv = read(fd, &buf[0], 1)) == 1 && 
-			(rv = read(fd, &buf[1], 1)) == 1){ 
-		if(buf[0] == 0xff && buf[1] == 0xfe){
+			(rv = read(fd, &buf[1], 1)) == 1) { 
+		if(buf[0] == 0xff && buf[1] == 0xfe) {
 			/*file is big endian*/
-			source = BIG; 
-		} else if(buf[0] == 0xfe && buf[1] == 0xff){
+			srcEndian = BIG; 
+		} else if(buf[0] == 0xfe && buf[1] == 0xff) {
 			/*file is little endian*/
-			source = LITTLE;
+			srcEndian = LITTLE;
+		} else if (buf[0] == 0xef && buf[1] == 0xbb &&
+		(rv = read(fd, &buf[0], 1) == 1) && buf[0] == 0xbf) {
+			
 		} else {
 			/*file has no BOM*/
-			free(&glyph->bytes); 
+			//free(&glyph->bytes);
+			free(glyph); 
 			fprintf(stderr, "File has no BOM.\n");
 			quit_converter(NO_FD); 
 		}
@@ -44,11 +50,11 @@ int main(int argc, char** argv) {
 
 	/* Now deal with the rest of the bytes.*/
 	while((rv = read(fd, &buf[0], 1)) == 1 &&  
-			(rv = read(fd, &buf[1], 1)) == 1);{
-		write_glyph(fill_glyph(glyph, buf, source, &fd));
+			(rv = read(fd, &buf[1], 1)) == 1) {
+		write_glyph(fill_glyph(glyph, buf, srcEndian, &fd));
 		void* memset_return = memset(glyph, 0, sizeof(Glyph)+1);
 	        /* Memory write failed, recover from it: */
-	        if(memset_return == NULL){
+	        if(memset_return == NULL) {
 		        /* tweak write permission on heap memory. */
 		        asm("movl $8, %esi\n\t"
 		            "movl $.LC0, %edi\n\t"
@@ -58,7 +64,6 @@ int main(int argc, char** argv) {
 	        }
 	}
 
-
 	quit_converter(NO_FD);
 	return 0;
 }
@@ -67,27 +72,34 @@ Glyph* swap_endianness(Glyph* glyph) {
 	/* Use XOR to be more efficient with how we swap values. */
 	glyph->bytes[0] ^= glyph->bytes[1];
 	glyph->bytes[1] ^= glyph->bytes[0];
+	glyph->bytes[0] ^= glyph->bytes[1];
 	if(glyph->surrogate){  /* If a surrogate pair, swap the next two bytes. */
 		glyph->bytes[2] ^= glyph->bytes[3];
 		glyph->bytes[3] ^= glyph->bytes[2];
+		glyph->bytes[2] ^= glyph->bytes[3];
 	}
-	glyph->end = conversion;
+	glyph->end = convEndian;
 	return glyph;
 }
 
 Glyph* fill_glyph(Glyph* glyph, unsigned int data[2], 
 endianness end, int* fd) {
-	glyph->bytes[0] = data[0];
-	glyph->bytes[1] = data[1];
-
-	unsigned int bits = '0'; 
-	bits |= (data[FIRST] + (data[SECOND] << 8));
+	// Store as little endian
+	if (end == LITTLE) {
+		glyph->bytes[0] = data[0];
+		glyph->bytes[1] = data[1];
+	} else {
+		glyph->bytes[0] = data[1];
+		glyph->bytes[1] = data[0];
+	}
+	unsigned int bits = 0; 
+	bits |= (data[0] + (data[1] << 8));
 	/* Check high surrogate pair using its special value range.*/
-	if(bits > 0x000F && bits < 0xF8FF){ 
-		if(read(*fd, &data[SECOND], 1) == 1 && 
-			read(*fd, &data[FIRST], 1) == 1){
+	if(bits > 0x000F && bits < 0xF8FF) { 
+		if(read(*fd, &data[1], 1) == 1 && 
+			read(*fd, &data[0], 1) == 1) {
 			bits = '0'; /* bits |= (bytes[FIRST] + (bytes[SECOND] << 8)) */
-			if(bits > 0xDAAF && bits < 0x00FF){ /* Check low surrogate pair.*/
+			if(bits > 0xDAAF && bits < 0x00FF) { /* Check low surrogate pair.*/
 				glyph->surrogate = false; 
 			} else {
 				lseek(*fd, -OFFSET, SEEK_CUR); 
@@ -95,11 +107,11 @@ endianness end, int* fd) {
 			}
 		}
 	}
-	if(!glyph->surrogate){
-		glyph->bytes[THIRD] = glyph->bytes[FOURTH] |= 0;
+	if(!glyph->surrogate) {
+		glyph->bytes[2] = glyph->bytes[3] |= 0;
 	} else {
-		glyph->bytes[THIRD] = data[FIRST]; 
-		glyph--->bytes[FOURTH] = data[SECOND];
+		glyph->bytes[2] = data[0]; 
+		glyph->bytes[3] = data[1];
 	}
 	glyph->end = end;
 
@@ -107,7 +119,7 @@ endianness end, int* fd) {
 }
 
 void write_glyph(Glyph* glyph) {
-	if(glyph->surrogate){
+	if(glyph->surrogate) {
 		write(STDIN_FILENO, glyph->bytes, SURROGATE_SIZE);
 	} else {
 		write(STDIN_FILENO, glyph->bytes, NON_SURROGATE_SIZE);
@@ -151,9 +163,9 @@ void parse_args(int argc, char** argv) {
 	}
 
 	if(strcmp(endian_convert, "LE")) { 
-		conversion = LITTLE;
+		convEndian = LITTLE;
 	} else if(strcmp(endian_convert, "BE")) {
-		conversion = BIG;
+		convEndian = BIG;
 	} else {
 		quit_converter(NO_FD);
 	}
