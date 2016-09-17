@@ -6,12 +6,12 @@ endianness convEndian;
 encoding srcEncoding;
 encoding convEncoding;
 
-int main(int argc, char** argv) {
+int main() { // int argc, char** argv
 	/* After calling parse_args(), filename and convEndian should be set. */
-	parse_args(argc, argv);
+	//parse_args(argc, argv);
 
 	int fd = open("rsrc/utf16le.txt", O_RDONLY); 
-	unsigned int buf[2]; 
+	unsigned int buf[2] = {0, 0}; 
 	int rv = 0; 
 
 	Glyph* glyph = malloc(sizeof(Glyph)); 
@@ -21,14 +21,16 @@ int main(int argc, char** argv) {
 	if((rv = read(fd, &buf[0], 1)) == 1 && 
 			(rv = read(fd, &buf[1], 1)) == 1) { 
 		if(buf[0] == 0xff && buf[1] == 0xfe) {
-			/*file is big endian*/
-			srcEndian = BIG; 
-		} else if(buf[0] == 0xfe && buf[1] == 0xff) {
 			/*file is little endian*/
-			srcEndian = LITTLE;
+			srcEndian = LITTLE; 
+			srcEncoding = UTF_16;
+		} else if(buf[0] == 0xfe && buf[1] == 0xff) {
+			/*file is big endian*/
+			srcEndian = BIG;
+			srcEncoding = UTF_16;
 		} else if (buf[0] == 0xef && buf[1] == 0xbb &&
 		(rv = read(fd, &buf[0], 1) == 1) && buf[0] == 0xbf) {
-			
+			srcEncoding = UTF_8;
 		} else {
 			/*file has no BOM*/
 			//free(&glyph->bytes);
@@ -36,7 +38,7 @@ int main(int argc, char** argv) {
 			fprintf(stderr, "File has no BOM.\n");
 			quit_converter(NO_FD); 
 		}
-		void* memset_return = memset(glyph, 0, sizeof(Glyph)+1);
+		void* memset_return = memset(glyph, 0, sizeof(Glyph));
 		/* Memory write failed, recover from it: */
 		if(memset_return == NULL){
 			/* tweak write permission on heap memory. */
@@ -44,7 +46,7 @@ int main(int argc, char** argv) {
 			    "movl $.LC0, %edi\n\t"
 			    "movl $0, %eax");
 			/* Now make the request again. */
-			memset(glyph, 0, sizeof(Glyph)+1);
+			memset(glyph, 0, sizeof(Glyph));
 		}
 	}
 
@@ -52,7 +54,7 @@ int main(int argc, char** argv) {
 	while((rv = read(fd, &buf[0], 1)) == 1 &&  
 			(rv = read(fd, &buf[1], 1)) == 1) {
 		write_glyph(fill_glyph(glyph, buf, srcEndian, &fd));
-		void* memset_return = memset(glyph, 0, sizeof(Glyph)+1);
+		void* memset_return = memset(glyph, 0, sizeof(Glyph));
 	        /* Memory write failed, recover from it: */
 	        if(memset_return == NULL) {
 		        /* tweak write permission on heap memory. */
@@ -60,10 +62,10 @@ int main(int argc, char** argv) {
 		            "movl $.LC0, %edi\n\t"
 		            "movl $0, %eax");
 		        /* Now make the request again. */
-		        memset(glyph, 0, sizeof(Glyph)+1);
+		        memset(glyph, 0, sizeof(Glyph));
 	        }
 	}
-
+	free(glyph);
 	quit_converter(NO_FD);
 	return 0;
 }
@@ -82,7 +84,7 @@ Glyph* swap_endianness(Glyph* glyph) {
 	return glyph;
 }
 
-Glyph* fill_glyph(Glyph* glyph, unsigned int data[2], 
+Glyph* fill_glyph(Glyph* glyph, unsigned int data[4], 
 endianness end, int* fd) {
 	// Store as little endian
 	if (end == LITTLE) {
@@ -93,25 +95,37 @@ endianness end, int* fd) {
 		glyph->bytes[1] = data[0];
 	}
 	unsigned int bits = 0; 
-	bits |= (data[0] + (data[1] << 8));
+	bits = (glyph->bytes[1] + (glyph->bytes[0] << 8)); // Little Endian
 	/* Check high surrogate pair using its special value range.*/
-	if(bits > 0x000F && bits < 0xF8FF) { 
-		if(read(*fd, &data[1], 1) == 1 && 
-			read(*fd, &data[0], 1) == 1) {
-			bits = '0'; /* bits |= (bytes[FIRST] + (bytes[SECOND] << 8)) */
-			if(bits > 0xDAAF && bits < 0x00FF) { /* Check low surrogate pair.*/
+	if (bits >= 0xD800 && bits <= 0xDBFF) { 
+		if (read(*fd, &data[0], 1) == 1 && 
+			read(*fd, &data[1], 1) == 1) {
+			bits = 0; /* bits |= (bytes[FIRST] + (bytes[SECOND] << 8)) */
+			if (end == LITTLE) {
+				bits = (data[0] + (data[1] << 8));
+			} else {
+				bits = (data[1] + (data[0] << 8));
+			}
+			if (bits >= 0xDC00 && bits <= 0xDFFF) { /* Check low surrogate pair.*/
 				glyph->surrogate = false; 
 			} else {
 				lseek(*fd, -OFFSET, SEEK_CUR); 
 				glyph->surrogate = true;
 			}
+		} else {
+			// error reading file
 		}
-	}
-	if(!glyph->surrogate) {
-		glyph->bytes[2] = glyph->bytes[3] |= 0;
 	} else {
+		glyph->surrogate = false;
+	}
+	if (!glyph->surrogate) {
+		glyph->bytes[2] = glyph->bytes[3] |= 0;
+	} else if (end == LITTLE) {
 		glyph->bytes[2] = data[0]; 
 		glyph->bytes[3] = data[1];
+	} else {
+		glyph->bytes[2] = data[1]; 
+		glyph->bytes[3] = data[0];
 	}
 	glyph->end = end;
 
