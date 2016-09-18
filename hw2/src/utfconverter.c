@@ -10,44 +10,32 @@ int main() { // int argc, char** argv
 	/* After calling parse_args(), filename and convEndian should be set. */
 	//parse_args(argc, argv);
 
-	int fd = open("rsrc/utf16le.txt", O_RDONLY); 
+	int fd = open("rsrc/utf16BE-special.txt", O_RDONLY); 
 	unsigned int buf[2] = {0, 0}; 
 	int rv = 0; 
 
 	Glyph* glyph = malloc(sizeof(Glyph)); 
+
+	//Read BOM - If not valid terminate program
+	if (!read_bom(fd)) {
+		free(glyph);
+		fprintf(stderr, "File has no BOM.\n");
+		quit_converter(NO_FD);
+	}
 	
-	/* Handle BOM bytes for UTF16 specially. 
-         * Read our values into the first and second elements. */
-	if((rv = read(fd, &buf[0], 1)) == 1 && 
-			(rv = read(fd, &buf[1], 1)) == 1) { 
-		if(buf[0] == 0xff && buf[1] == 0xfe) {
-			/*file is little endian*/
-			srcEndian = LITTLE; 
-			srcEncoding = UTF_16;
-		} else if(buf[0] == 0xfe && buf[1] == 0xff) {
-			/*file is big endian*/
-			srcEndian = BIG;
-			srcEncoding = UTF_16;
-		} else if (buf[0] == 0xef && buf[1] == 0xbb &&
-		(rv = read(fd, &buf[0], 1) == 1) && buf[0] == 0xbf) {
-			srcEncoding = UTF_8;
-		} else {
-			/*file has no BOM*/
-			//free(&glyph->bytes);
-			free(glyph); 
-			fprintf(stderr, "File has no BOM.\n");
-			quit_converter(NO_FD); 
-		}
-		void* memset_return = memset(glyph, 0, sizeof(Glyph));
-		/* Memory write failed, recover from it: */
-		if(memset_return == NULL){
-			/* tweak write permission on heap memory. */
-			asm("movl $8, %esi\n\t"
-			    "movl $.LC0, %edi\n\t"
-			    "movl $0, %eax");
-			/* Now make the request again. */
-			memset(glyph, 0, sizeof(Glyph));
-		}
+	void* memset_return = memset(glyph, 0, sizeof(Glyph));
+	/* Memory write failed, recover from it: */
+	if(memset_return == NULL) {
+		/* tweak write permission on heap memory. */
+		asm("movl $8, %esi\n\t"
+			"movl $.LC0, %edi\n\t"
+			"movl $0, %eax");
+		/* Now make the request again. */
+		memset(glyph, 0, sizeof(Glyph));
+	}
+
+	if (srcEncoding == UTF_8) {
+		
 	}
 
 	/* Now deal with the rest of the bytes.*/
@@ -84,7 +72,7 @@ Glyph* swap_endianness(Glyph* glyph) {
 	return glyph;
 }
 
-Glyph* fill_glyph(Glyph* glyph, unsigned int data[4], 
+Glyph* fill_glyph(Glyph* glyph, unsigned int data[2], 
 endianness end, int* fd) {
 	// Store as little endian
 	if (end == LITTLE) {
@@ -130,6 +118,31 @@ endianness end, int* fd) {
 	glyph->end = end;
 
 	return glyph;
+}
+
+void read_bom(int* fd) {
+	unsigned int buf[2] = {0, 0}; 
+	int rv = 0;
+	if((rv = read(fd, &buf[0], 1)) == 1 && 
+			(rv = read(fd, &buf[1], 1)) == 1) { 
+		if(buf[0] == 0xff && buf[1] == 0xfe) {
+			/*file is little endian*/
+			srcEndian = LITTLE; 
+			srcEncoding = UTF_16;
+		} else if(buf[0] == 0xfe && buf[1] == 0xff) {
+			/*file is big endian*/
+			srcEndian = BIG;
+			srcEncoding = UTF_16;
+		} else if (buf[0] == 0xef && buf[1] == 0xbb &&
+		(rv = read(fd, &buf[0], 1) == 1) && buf[0] == 0xbf) {
+			srcEndian = NULL;
+			srcEncoding = UTF_8;
+		} else {
+			return 0;
+		}
+		return 1;
+	}
+	return 0;
 }
 
 void write_glyph(Glyph* glyph) {

@@ -36,7 +36,6 @@ typedef enum {UTF_8, UTF_16} encoding;
 /** The struct for a codepoint glyph. */
 typedef struct Glyph {
 	unsigned char bytes[MAX_BYTES];
-	endianness end;
 	bool surrogate;
 } Glyph;
 
@@ -52,13 +51,24 @@ const char* const USAGE[] = {
 };
 
 /** Which endianness to convert to. */
-extern endianness conversion;
+extern endianness convEndian;
 
 /** Which endianness the source file is in. */
-extern endianness source;
+extern endianness srcEndian;
 
 /** Which encoding the source file is in. */
-extern 
+extern encoding srcEncoding;
+
+/** Which encoding to convert to */
+extern encoding convEncoding;
+
+/**
+* Reads the BOM of the passed file and sets global endianness and encoding
+*
+* @param fd The file descriptor
+* @return Returns whether or not the file has a valid BOM
+*/
+voidint read_bom P(int*);
 
 /**
  * A function that swaps the endianness of the bytes of an encoding from
