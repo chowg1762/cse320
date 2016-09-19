@@ -68,7 +68,7 @@ extern encoding convEncoding;
 * @param fd The file descriptor
 * @return Returns whether or not the file has a valid BOM
 */
-voidint read_bom P(int*);
+int read_bom P((int*));
 
 /**
  * A function that swaps the endianness of the bytes of an encoding from

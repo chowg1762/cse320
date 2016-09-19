@@ -17,9 +17,16 @@ int main() { // int argc, char** argv
 	Glyph* glyph = malloc(sizeof(Glyph)); 
 
 	//Read BOM - If not valid terminate program
-	if (!read_bom(fd)) {
+	if (!read_bom(&fd)) {
 		free(glyph);
 		fprintf(stderr, "File has no BOM.\n");
+		quit_converter(NO_FD);
+	}
+
+	// Write BOM to output
+	if (!write_bom()) {
+		free(glyph);
+		fprintf(stderr, "Error writing BOM.\n");
 		quit_converter(NO_FD);
 	}
 	
@@ -68,7 +75,6 @@ Glyph* swap_endianness(Glyph* glyph) {
 		glyph->bytes[3] ^= glyph->bytes[2];
 		glyph->bytes[2] ^= glyph->bytes[3];
 	}
-	glyph->end = convEndian;
 	return glyph;
 }
 
@@ -115,16 +121,15 @@ endianness end, int* fd) {
 		glyph->bytes[2] = data[1]; 
 		glyph->bytes[3] = data[0];
 	}
-	glyph->end = end;
 
 	return glyph;
 }
 
-void read_bom(int* fd) {
+int read_bom(int* fd) {
 	unsigned int buf[2] = {0, 0}; 
 	int rv = 0;
-	if((rv = read(fd, &buf[0], 1)) == 1 && 
-			(rv = read(fd, &buf[1], 1)) == 1) { 
+	if((rv = read(*fd, &buf[0], 1)) == 1 && 
+			(rv = read(*fd, &buf[1], 1)) == 1) { 
 		if(buf[0] == 0xff && buf[1] == 0xfe) {
 			/*file is little endian*/
 			srcEndian = LITTLE; 
@@ -134,8 +139,7 @@ void read_bom(int* fd) {
 			srcEndian = BIG;
 			srcEncoding = UTF_16;
 		} else if (buf[0] == 0xef && buf[1] == 0xbb &&
-		(rv = read(fd, &buf[0], 1) == 1) && buf[0] == 0xbf) {
-			srcEndian = NULL;
+		(rv = read(*fd, &buf[0], 1) == 1) && buf[0] == 0xbf) {
 			srcEncoding = UTF_8;
 		} else {
 			return 0;
@@ -145,11 +149,39 @@ void read_bom(int* fd) {
 	return 0;
 }
 
-void write_glyph(Glyph* glyph) {
-	if(glyph->surrogate) {
-		write(STDIN_FILENO, glyph->bytes, SURROGATE_SIZE);
+int write_bom() {
+	int fd = open(filename, O_WRONLY); 
+	if (fd == NULL) {
+		return 0;
+	}
+	int buf[3], nBytes;
+	if (destEncoding == UTF_8) {
+		nBytes = 3;
+		buf[0] = 0xef;
+		buf[1] = 0xbb;
+		buf[2] = 0xbf;
 	} else {
-		write(STDIN_FILENO, glyph->bytes, NON_SURROGATE_SIZE);
+		nBytes = 2;
+		if (destEndian == LITTLE) {
+			buf[0] = 0xff;
+			but[1] = 0xfe;
+		} else {
+			buf[0] = 0xfe;
+			but[1] = 0xff;
+		}
+	}
+	if (write(fd, buf, nBytes) == -1) {
+		return 0;
+	}
+	return 1;
+}
+
+void write_glyph(Glyph* glyph) {
+	int fd = open("output.txt", O_WRONLY);
+	if(glyph->surrogate) {
+		write(fd, glyph->bytes, SURROGATE_SIZE); // STDIN_FILENO
+	} else {
+		write(fd, glyph->bytes, NON_SURROGATE_SIZE);
 	}
 }
 
