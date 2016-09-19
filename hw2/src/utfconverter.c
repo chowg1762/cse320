@@ -82,6 +82,50 @@ int main(int argc, char** argv) {
 	return 0;
 }
 
+void convert_encoding(Glyph* glyph) {
+	unsigned int unicode = 0, i, j;
+	// Find unicode value of UTF 8
+	if (srcEncoding == UTF_8) {
+		if (glyph->nBytes == 1) {
+			unicode = glyph->bytes[0];
+		} else {
+			int shamt = (glyph->nBytes + 1);
+			unicode = (glyph->bytes[0] << shamt) >> shamt;
+			for (i = 1; i < glyph->nBytes; ++i) {
+				unicode <<= 8;
+				unicode += (glyph->bytes[i] << 2) >> 2;
+			}
+		}
+	} 
+	// Find unicode value of UTF 16 
+	else {
+		if (!glyph->surrogate) {
+			unicode = glyph->bytes[0] + (glyph->bytes[1] << 8);
+		} else {
+			int data[4] = {0, 0, 0, 0};
+			data
+		}
+	}
+	// Use unicode to make new encoding
+	// Unicode -> UTF 8
+	if (convEncoding == UTF_8) {
+
+	} 
+	// Unicode -> UTF 16
+	else {
+		// Surrogate pair
+		if (unicode > 0x10000) {
+			unicode -= 0x10000;
+			unsigned int msb = (unicode << 10) + 0xD800;
+			unsigned int lsb = (unicode & 0x3FF) + 0xDC00;
+			unicode = (msb << 10) + lsb;
+			for (i = 0; i < 32; ++i) {
+				j = i / 8;
+			}
+		}
+	}
+}
+
 Glyph* swap_endianness(Glyph* glyph) {
 	/* Use XOR to be more efficient with how we swap values. */
 	glyph->bytes[0] ^= glyph->bytes[1];
@@ -148,15 +192,15 @@ Glyph* read_utf_16(int fd, Glyph* glyph, int *buf) {
 		glyph->bytes[1] = glyph->bytes[0];
 		glyph->bytes[0] = *buf;
 	}
-	unsigned int temp = (glyph->[1] + (glyph->bytes[0] << 8));
+	unsigned int temp = (glyph->[0] + (glyph->bytes[1] << 8));
 	// Check if this character is a surrogate pair
 	if (temp >= 0xD800 && temp <= 0xDBFF) {
 		if (read(fd, glyph->bytes[2], 1) == 1 && 
 		read(fd, glyph->bytes[3], 1)) {
 			if (srcEndian == LITTLE) {
-				temp = glyph->bytes[3] + (glyph->bytes[2] << 8);
-			} else {
 				temp = glyph->bytes[2] + (glyph->bytes[3] << 8);
+			} else {
+				temp = glyph->bytes[3] + (glyph->bytes[2] << 8);
 			}
 			if (temp >= 0xDC00 && temp <= 0xDFFF) {
 				glyph->surrogate = true;
