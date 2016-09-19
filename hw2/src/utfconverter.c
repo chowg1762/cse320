@@ -119,8 +119,9 @@ void convert_encoding(Glyph* glyph) {
 			unsigned int msb = (unicode << 10) + 0xD800;
 			unsigned int lsb = (unicode & 0x3FF) + 0xDC00;
 			unicode = (msb << 10) + lsb;
-			for (i = 0; i < 32; ++i) {
-				j = i / 8;
+			for (i = 0; i < 4; ++i) {
+				glyph->bytes[i] = (unicode >> (i * 8)) << ((3 - i) * 8) 
+				>> ((3 - i) * 8);
 			}
 		}
 	}
