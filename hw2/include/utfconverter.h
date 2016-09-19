@@ -71,6 +71,13 @@ extern encoding convEncoding;
 int read_bom P((int*));
 
 /**
+* Writes the BOM of the designated encoding to the output file
+*
+* @return Returns the success of writing to output file
+*/
+int write_bom P(());
+
+/**
  * A function that swaps the endianness of the bytes of an encoding from
  * LE to BE and vice versa.
  *

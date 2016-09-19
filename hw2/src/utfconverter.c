@@ -6,9 +6,10 @@ endianness convEndian;
 encoding srcEncoding;
 encoding convEncoding;
 
-int main() { // int argc, char** argv
-	/* After calling parse_args(), filename and convEndian should be set. */
-	//parse_args(argc, argv);
+int main(int argc, char** argv) { 
+	/* After calling parse_args(), filename, convEndian, and convEncoding
+	 should be set. */
+	parse_args(argc, argv);
 
 	int fd = open("rsrc/utf16BE-special.txt", O_RDONLY); 
 	unsigned int buf[2] = {0, 0}; 
@@ -16,7 +17,7 @@ int main() { // int argc, char** argv
 
 	Glyph* glyph = malloc(sizeof(Glyph)); 
 
-	//Read BOM - If not valid terminate program
+	//Read BOM
 	if (!read_bom(&fd)) {
 		free(glyph);
 		fprintf(stderr, "File has no BOM.\n");
@@ -151,23 +152,20 @@ int read_bom(int* fd) {
 
 int write_bom() {
 	int fd = open(filename, O_WRONLY); 
-	if (fd == NULL) {
-		return 0;
-	}
 	int buf[3], nBytes;
-	if (destEncoding == UTF_8) {
+	if (convEncoding == UTF_8) {
 		nBytes = 3;
 		buf[0] = 0xef;
 		buf[1] = 0xbb;
 		buf[2] = 0xbf;
 	} else {
 		nBytes = 2;
-		if (destEndian == LITTLE) {
+		if (convEndian == LITTLE) {
 			buf[0] = 0xff;
-			but[1] = 0xfe;
+			buf[1] = 0xfe;
 		} else {
 			buf[0] = 0xfe;
-			but[1] = 0xff;
+			buf[1] = 0xff;
 		}
 	}
 	if (write(fd, buf, nBytes) == -1) {
@@ -187,7 +185,12 @@ void write_glyph(Glyph* glyph) {
 
 void parse_args(int argc, char** argv) {
 	static struct option long_options[] = {
-		{"help", optional_argument, NULL, 'h'}
+		{"help", optional_argument, NULL, 'h'},
+		{"verbosity_level_1", optional_argument, NULL, 'v'},
+		{"verbosity_level_2", optional_argument, NULL, "vv"},
+		{"UTF", required_argument, NULL, 'u'},
+
+		}
 		// TODO - ADD TO ME
 	};
 	int option_index, c;
