@@ -103,7 +103,7 @@ Glyph* convert P((Glyph* glyph, endianness end));
 * @param fd	The int pointer to the file descriptor of the input
 * @return Returns the filled glyph
 */
-Glyph* read_utf_8 P((int fd));
+Glyph* read_utf_8 P((int fd, Glyph* glyph, int *buf));
 
 /**
 * Reads the source file as UTF 16 and stores the passes the unicode to fill_glyph

@@ -14,9 +14,8 @@ int main(int argc, char** argv) {
 
 	int srcFD = open("rsrc/utf16BE-special.txt", O_RDONLY);
 	int convFD = open(convFilename, O_WRONLY);
-	/*unsigned int buf[2] = {0, 0}; 
-	int rv = 0; */
-
+	unsigned int* buf = malloc(sizeof(int));
+	*buf = 0;
 	Glyph* glyph = malloc(sizeof(Glyph)); 
 
 	//Read BOM
@@ -45,35 +44,39 @@ int main(int argc, char** argv) {
 	}
 
 	// Read source file and create glyphs
-	if (srcEncoding == UTF_8) {
-		if (!read_utf_8(srcFD)) {
-			free(glyph);
-			fprintf(stderr, "Error reading UTF_8 file.\n");
-			quit_converter(srcFD, convFD);
+	while (read(fd, buf, 1) == 1) {
+		memset(glyph, 0, sizeof(Glyph));
+		if (srcEncoding == UTF_8) {
+			read_utf_8(srcFD, glyph, buf));
+		} else if (srcEncoding == UTF_16) {
+			read_utf_16(srcFD, glyph, buf);
+ 		}
+		if (srcEncoding != convEncoding) {
+			convert_encoding(glyph);
 		}
-	} else if (srcEncoding == UTF_16) {
-		if (!read_utf_16(srcFD)) {
-			free(glyph);
-			fprintf(stderr, "Error reading UTF_16 file");
-			quit_converter(srcFD, convFD);
+		if (srcEndian != convEndian) {
+			swap_endianness(glyph);
 		}
- 	}
+		write_glyph(glyph);
+		*buf = 0;
+	}
 
 	/* Now deal with the rest of the bytes.*/
 	while((rv = read(fd, &buf[0], 1)) == 1 &&  
-			(rv = read(fd, &buf[1], 1)) == 1) {
+	(rv = read(fd, &buf[1], 1)) == 1) {
 		write_glyph(fill_glyph(glyph, buf, srcEndian, &fd));
 		void* memset_return = memset(glyph, 0, sizeof(Glyph));
-	        /* Memory write failed, recover from it: */
-	        if(memset_return == NULL) {
-		        /* tweak write permission on heap memory. */
-		        asm("movl $8, %esi\n\t"
-		            "movl $.LC0, %edi\n\t"
-		            "movl $0, %eax");
-		        /* Now make the request again. */
+	    /* Memory write failed, recover from it: */
+	    if(memset_return == NULL) {
+		    /* tweak write permission on heap memory. */
+	       	asm("movl $8, %esi\n\t"
+		    "movl $.LC0, %edi\n\t"
+	        "movl $0, %eax");
+	        /* Now make the request again. */
 		        memset(glyph, 0, sizeof(Glyph));
-	        }
+	    }
 	}
+	free(buf);
 	free(glyph);
 	quit_converter(srcFD, convFD);
 	return 0;
@@ -92,92 +95,91 @@ Glyph* swap_endianness(Glyph* glyph) {
 	return glyph;
 }
 
-Glyph* read_utf_8(int fd, Glyph *glyph) {
-	Glyph *glyph = malloc(sizeof(Glyph));
-	memset(glyph, 0, sizeof(Glyph));
-	int buf[4] = {0, 0, 0, 0}, i;
-	while (read(fd, &buf[0], 1)) {
-		// 1 Byte?
-		if (buf[0] >> 7 == 0) {
-			glyph->nBytes = 1;
-			glyph->bytes[0] = buf[0];
-		}
-		// 2 Bytes?
-		else if (buf[0] >> 5 == 0x6) {
-			glyph->nBytes = 2;
-			glyph->bytes[0] = buf[0];
-		} 
-		// 3 Bytes?
-		else if (buf[0] >> 4 == 0xD) {
-			glyph->nBytes = 3;
-			glyph->bytes[0] = buf[0];
-		}
-		// 4 Bytes?
-		else if (buf[0] >> 3 == 0x1D) {
-			glyph->nBytes = 4;
-			glyph->bytes[0] = buf[0];
+Glyph* read_utf_8(int fd, Glyph *glyph, int *buf) {
+	glyph->bytes[0] = *buf;
+	int i;
+	// 1 Byte?
+	if (*buf >> 7 == 0) {
+		glyph->nBytes = 1;
+	}
+	// 2 Bytes?
+	else if (*buf >> 5 == 0x6) {
+		glyph->nBytes = 2;
+	} 
+	// 3 Bytes?
+	else if (*buf >> 4 == 0xD) {
+		glyph->nBytes = 3;
+	}
+	// 4 Bytes?
+	else if (*buf >> 3 == 0x1D) {
+		glyph->nBytes = 4;
+	} else {
+		fprintf(stderr, "Encountered an invalid UTF 8 character");
+		free(buf);
+		free(glyph);
+		quit_converter(fd, NO_FD);
+	}
+	// Read the bytes
+	for (i = 0; i < glyph->nBytes; ++i) {
+		*buf = 0;
+		if (read(fd, buf, 1) && (*buf >> 6 == 2)) {
+			glyph->bytes[i + 1] = *buf;
 		} else {
-			return 0;
+			fprintf(stderr, "Encountered an invalid UTF 8 character");
+			free(buf);
+			free(glyph);
+			quit_converter(fd, NO_FD);
 		}
-		// Read the bytes
-		for (i = 1; i < glyph->nBytes; ++i) {
-			if (read(fd, &buf[i], 1) && (buf[i] >> 6 == 2)) {
-				glyph->bytes[i] = buf[i];
-			} else {
-				fprintf(stderr, "Encountered an invalid UTF 8 character");
-				free(glyph);
-				quit_converter(fd, NO_FD);
-			}
-		}
-		memset(glyph, 0, sizeof(Glyph));
 	}
 	return glyph;
 }
 
-Glyph* fill_glyph(Glyph* glyph, unsigned int data[2], 
-endianness end, int* fd) {
-	// Store as little endian
-	if (end == LITTLE) {
-		glyph->bytes[0] = data[0];
-		glyph->bytes[1] = data[1];
-	} else {
-		glyph->bytes[0] = data[1];
-		glyph->bytes[1] = data[0];
+Glyph* read_utf_16(int fd, Glyph* glyph, int *buf) {
+	glyph->bytes[0] = *buf;
+	if (read(fd, buf, 1) != 1) {
+		fprintf(stderr, "Error reading file.");
+		free(buf);
+		free(glyph);
+		quit_converter(fd, NO_FD);
 	}
-	unsigned int bits = 0; 
-	bits = (glyph->bytes[1] + (glyph->bytes[0] << 8)); // Little Endian
-	/* Check high surrogate pair using its special value range.*/
-	if (bits >= 0xD800 && bits <= 0xDBFF) { 
-		if (read(*fd, &data[0], 1) == 1 && 
-			read(*fd, &data[1], 1) == 1) {
-			bits = 0; /* bits |= (bytes[FIRST] + (bytes[SECOND] << 8)) */
-			if (end == LITTLE) {
-				bits = (data[0] + (data[1] << 8));
+	if (srcEndian == LITTLE) {
+		glyph->bytes[1] = *buf;
+	} else {
+		glyph->bytes[1] = glyph->bytes[0];
+		glyph->bytes[0] = *buf;
+	}
+	unsigned int temp = (glyph->[1] + (glyph->bytes[0] << 8));
+	// Check if this character is a surrogate pair
+	if (temp >= 0xD800 && temp <= 0xDBFF) {
+		if (read(fd, glyph->bytes[2], 1) == 1 && 
+		read(fd, glyph->bytes[3], 1)) {
+			if (srcEndian == LITTLE) {
+				temp = glyph->bytes[3] + (glyph->bytes[2] << 8);
 			} else {
-				bits = (data[1] + (data[0] << 8));
+				temp = glyph->bytes[2] + (glyph->bytes[3] << 8);
 			}
-			if (bits >= 0xDC00 && bits <= 0xDFFF) { /* Check low surrogate pair.*/
-				glyph->surrogate = false; 
-			} else {
-				lseek(*fd, -OFFSET, SEEK_CUR); 
+			if (temp >= 0xDC00 && temp <= 0xDFFF) {
 				glyph->surrogate = true;
+			} else {
+				lseek(fd, -OFFSET, SEEK_CUR);
+				glyph->surrogate =false;
 			}
 		} else {
-			// error reading file
+			fprintf(stderr, "Error reading file.");
+			free(buf);
+			free(glyph);
+			quit_converter(fd, NO_FD);
 		}
 	} else {
 		glyph->surrogate = false;
 	}
 	if (!glyph->surrogate) {
-		glyph->bytes[2] = glyph->bytes[3] |= 0;
-	} else if (end == LITTLE) {
-		glyph->bytes[2] = data[0]; 
-		glyph->bytes[3] = data[1];
-	} else {
-		glyph->bytes[2] = data[1]; 
-		glyph->bytes[3] = data[0];
+		glyph->bytes[2] = glyph->bytes[3] = 0;
+	} else if (srcEndian == BIG) {
+		*buf = glyph->bytes[2];
+		glyph->bytes[2] = glyph->bytes[3];
+		glyph->bytes[3] = *buf;
 	}
-
 	return glyph;
 }
 
@@ -229,10 +231,14 @@ int write_bom(int fd) {
 }
 
 void write_glyph(Glyph* glyph, int fd) {
-	if(glyph->surrogate) {
-		write(fd, glyph->bytes, SURROGATE_SIZE); // STDIN_FILENO
+	if (convEncoding == UTF_8) {
+		write(fd, glyph->bytes, glyph->nBytes);
 	} else {
-		write(fd, glyph->bytes, NON_SURROGATE_SIZE);
+		if(glyph->surrogate) {
+			write(fd, glyph->bytes, SURROGATE_SIZE); // STDIN_FILENO
+		} else {
+			write(fd, glyph->bytes, NON_SURROGATE_SIZE);
+		}
 	}
 }
 
