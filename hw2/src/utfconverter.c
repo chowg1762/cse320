@@ -1,6 +1,7 @@
 #include "utfconverter.h"
 
-char* filename;
+char* srcFilename;
+char* convFilename;
 endianness srcEndian;
 endianness convEndian;
 encoding srcEncoding;
@@ -11,24 +12,25 @@ int main(int argc, char** argv) {
 	 should be set. */
 	parse_args(argc, argv);
 
-	int fd = open("rsrc/utf16BE-special.txt", O_RDONLY); 
-	unsigned int buf[2] = {0, 0}; 
-	int rv = 0; 
+	int srcFD = open("rsrc/utf16BE-special.txt", O_RDONLY);
+	int convFD = open(convFilename, O_WRONLY);
+	/*unsigned int buf[2] = {0, 0}; 
+	int rv = 0; */
 
 	Glyph* glyph = malloc(sizeof(Glyph)); 
 
 	//Read BOM
-	if (!read_bom(&fd)) {
+	if (!read_bom(&srcFD)) {
 		free(glyph);
 		fprintf(stderr, "File has no BOM.\n");
-		quit_converter(NO_FD);
+		quit_converter(srcFD, NO_FD);
 	}
 
 	// Write BOM to output
-	if (!write_bom()) {
+	if (!write_bom(convFD)) {
 		free(glyph);
 		fprintf(stderr, "Error writing BOM.\n");
-		quit_converter(NO_FD);
+		quit_converter(srcFD, convFD);
 	}
 	
 	void* memset_return = memset(glyph, 0, sizeof(Glyph));
@@ -42,9 +44,20 @@ int main(int argc, char** argv) {
 		memset(glyph, 0, sizeof(Glyph));
 	}
 
+	// Read source file and create glyphs
 	if (srcEncoding == UTF_8) {
-		
-	}
+		if (!read_utf_8(srcFD)) {
+			free(glyph);
+			fprintf(stderr, "Error reading UTF_8 file.\n");
+			quit_converter(srcFD, convFD);
+		}
+	} else if (srcEncoding == UTF_16) {
+		if (!read_utf_16(srcFD)) {
+			free(glyph);
+			fprintf(stderr, "Error reading UTF_16 file");
+			quit_converter(srcFD, convFD);
+		}
+ 	}
 
 	/* Now deal with the rest of the bytes.*/
 	while((rv = read(fd, &buf[0], 1)) == 1 &&  
@@ -62,7 +75,7 @@ int main(int argc, char** argv) {
 	        }
 	}
 	free(glyph);
-	quit_converter(NO_FD);
+	quit_converter(srcFD, convFD);
 	return 0;
 }
 
@@ -75,6 +88,48 @@ Glyph* swap_endianness(Glyph* glyph) {
 		glyph->bytes[2] ^= glyph->bytes[3];
 		glyph->bytes[3] ^= glyph->bytes[2];
 		glyph->bytes[2] ^= glyph->bytes[3];
+	}
+	return glyph;
+}
+
+Glyph* read_utf_8(int fd, Glyph *glyph) {
+	Glyph *glyph = malloc(sizeof(Glyph));
+	memset(glyph, 0, sizeof(Glyph));
+	int buf[4] = {0, 0, 0, 0}, i;
+	while (read(fd, &buf[0], 1)) {
+		// 1 Byte?
+		if (buf[0] >> 7 == 0) {
+			glyph->nBytes = 1;
+			glyph->bytes[0] = buf[0];
+		}
+		// 2 Bytes?
+		else if (buf[0] >> 5 == 0x6) {
+			glyph->nBytes = 2;
+			glyph->bytes[0] = buf[0];
+		} 
+		// 3 Bytes?
+		else if (buf[0] >> 4 == 0xD) {
+			glyph->nBytes = 3;
+			glyph->bytes[0] = buf[0];
+		}
+		// 4 Bytes?
+		else if (buf[0] >> 3 == 0x1D) {
+			glyph->nBytes = 4;
+			glyph->bytes[0] = buf[0];
+		} else {
+			return 0;
+		}
+		// Read the bytes
+		for (i = 1; i < glyph->nBytes; ++i) {
+			if (read(fd, &buf[i], 1) && (buf[i] >> 6 == 2)) {
+				glyph->bytes[i] = buf[i];
+			} else {
+				fprintf(stderr, "Encountered an invalid UTF 8 character");
+				free(glyph);
+				quit_converter(fd, NO_FD);
+			}
+		}
+		memset(glyph, 0, sizeof(Glyph));
 	}
 	return glyph;
 }
@@ -150,8 +205,7 @@ int read_bom(int* fd) {
 	return 0;
 }
 
-int write_bom() {
-	int fd = open(filename, O_WRONLY); 
+int write_bom(int fd) { 
 	int buf[3], nBytes;
 	if (convEncoding == UTF_8) {
 		nBytes = 3;
@@ -174,8 +228,7 @@ int write_bom() {
 	return 1;
 }
 
-void write_glyph(Glyph* glyph) {
-	int fd = open("output.txt", O_WRONLY);
+void write_glyph(Glyph* glyph, int fd) {
 	if(glyph->surrogate) {
 		write(fd, glyph->bytes, SURROGATE_SIZE); // STDIN_FILENO
 	} else {
@@ -183,16 +236,15 @@ void write_glyph(Glyph* glyph) {
 	}
 }
 
-void parse_args(int argc, char** argv) {
+int parse_args(int argc, char** argv) {
 	static struct option long_options[] = {
 		{"help", optional_argument, NULL, 'h'},
 		{"verbosity_level_1", optional_argument, NULL, 'v'},
-		{"verbosity_level_2", optional_argument, NULL, "vv"},
+		{"verbosity_level_2", optional_argument, NULL, 'z'},
 		{"UTF", required_argument, NULL, 'u'},
-
-		}
+		{0, 0, 0, 0}
+		};
 		// TODO - ADD TO ME
-	};
 	int option_index, c;
 	char* endian_convert = NULL;
 	
@@ -205,9 +257,7 @@ void parse_args(int argc, char** argv) {
 			case 'u':
 				endian_convert = optarg;
 			default:
-				fprintf(stderr, "Unrecognized argument.\n");
-				quit_converter(NO_FD);
-				break;
+				return 0;
 		}
 
 	}
@@ -229,22 +279,25 @@ void parse_args(int argc, char** argv) {
 	} else if(strcmp(endian_convert, "BE")) {
 		convEndian = BIG;
 	} else {
-		quit_converter(NO_FD);
+		return 0;
 	}
+	return 1;
 }
 
 void print_help(void) {
 	for(int i = 0; i < 4; i++){
 		printf("%s", USAGE[i]); 
 	}
-	quit_converter(NO_FD);
+	quit_converter(NO_FD, NO_FD);
 }
 
-void quit_converter(int fd) {
+void quit_converter(int srcFD, int convFD) {
 	close(STDERR_FILENO);
 	close(STDIN_FILENO);
 	close(STDOUT_FILENO);
-	if(fd != NO_FD)
-		close(fd);
+	if (srcFD != NO_FD)
+		close(srcFD);
+	if (convFD != NO_FD)
+		close(convFD);
 	exit(0);
 }

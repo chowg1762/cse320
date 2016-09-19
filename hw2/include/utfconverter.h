@@ -36,6 +36,7 @@ typedef enum {UTF_8, UTF_16} encoding;
 /** The struct for a codepoint glyph. */
 typedef struct Glyph {
 	unsigned char bytes[MAX_BYTES];
+	int nBytes;
 	bool surrogate;
 } Glyph;
 
@@ -97,6 +98,22 @@ Glyph* swap_endianness P((Glyph*));
 Glyph* convert P((Glyph* glyph, endianness end));
 
 /**
+* Reads the source file as UTF 8 and stores the passes the unicode to fill_glyph
+*
+* @param fd	The int pointer to the file descriptor of the input
+* @return Returns the filled glyph
+*/
+Glyph* read_utf_8 P((int fd));
+
+/**
+* Reads the source file as UTF 16 and stores the passes the unicode to fill_glyph
+*
+* @param fd	The int pointer to the file descriptor of the input
+* @return Returns the success of reading the source file and storing its unicode
+*/
+int read_utf_16 P((int fd));
+
+/**
  * Fills in a glyph with the given data in data[2], with the given endianness 
  * by end.
  *
@@ -121,8 +138,9 @@ void write_glyph P((Glyph*));
  *
  * @param argc The number of arguments.
  * @param argv The arguments as an array of string.
+ * @return Returns the success of parsing the args
  */
-void parse_args P((int, char**));
+int parse_args P((int, char**));
 
 /**
  * Prints the usage statement.
@@ -137,6 +155,6 @@ void print_help P((void));
  * the macro value NO_FD (-1) to signify that we have no open file
  * to close.
  */
-void quit_converter P((int));
+void quit_converter P((int, int));
 
 #endif
