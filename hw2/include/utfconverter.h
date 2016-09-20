@@ -44,12 +44,20 @@ typedef struct Glyph {
 extern char* filename;
 
 /** The usage statement. */
-const char* const USAGE[] = { 
-	"Usage:  ./utfconverter FILENAME [OPTION]\n\t",
-	"./utfconverter -h\t\t\tDisplays this usage statement.\n\t",
-	"./utfconverter --help\t\t\tDisplays this usage statement.\n\t"
-	"./utfconverter --UTF-16=ENDIANNESS\tEndianness to convert to.\n",
-};
+const char* const USAGE = 
+"Command line uility for converting UTF files to and from UTF-8, UTF-16LE\n\
+and UTF-16BE.\n\n\
+Usage:\n\
+  ./utf [-h|--help] -u OUT_ENC | --UTF=OUT_ENC IN_FILE [OUT_FILE]\n\n\
+  Option arguments:\n\
+    -h, --help\t    Displays this usage.\n\
+    -v, -vv\t    Toggles the verbosity of the program to level 1 or 2.\n\n\
+  Mandatory arguments:\n\
+    -u OUT_ENC, --UTF=OUT_ENC\tSets the output encoding.\n\
+\t\t\t\tValid values for OUT_ENC: 8, 16LE, 16BE\n\n\
+  Positional Arguments:\n\
+    IN_FILE\t    The file to convert.\n\
+    [OUT_FILE]\t    Output file name. If not present, defaults to stdout.\n";
 
 /** Which endianness to convert to. */
 extern endianness convEndian;
@@ -79,6 +87,13 @@ int read_bom P((int*));
 int write_bom P(());
 
 /**
+* Converts the encoding of a glyph to the other type
+*
+* @param glyph The pointer to the glyph struct to convert
+*/
+void convert_encoding P((Glyph*));
+
+/**
  * A function that swaps the endianness of the bytes of an encoding from
  * LE to BE and vice versa.
  *
@@ -103,15 +118,15 @@ Glyph* convert P((Glyph* glyph, endianness end));
 * @param fd	The int pointer to the file descriptor of the input
 * @return Returns the filled glyph
 */
-Glyph* read_utf_8 P((int fd, Glyph* glyph, int *buf));
+Glyph* read_utf_8 P((int fd, Glyph* glyph, unsigned int* buf));
 
 /**
-* Reads the source file as UTF 16 and stores the passes the unicode to fill_glyph
+* Reads the sfdource file as UTF 16 and stores the passes the unicode to fill_glyph
 *
 * @param fd	The int pointer to the file descriptor of the input
 * @return Returns the success of reading the source file and storing its unicode
 */
-int read_utf_16 P((int fd));
+Glyph* read_utf_16 P((int fd, Glyph* glyph, unsigned int* buf));
 
 /**
  * Fills in a glyph with the given data in data[2], with the given endianness 
@@ -130,8 +145,9 @@ Glyph* fill_glyph P((Glyph*, unsigned int*, endianness, int*));
  * Writes the given glyph's contents to stdout.
  *
  * @param glyph The pointer to the glyph struct to write to stdout.
+ * @param fd The file descriptor for output
  */
-void write_glyph P((Glyph*));
+void write_glyph P((Glyph*, int));
 
 /**
  * Calls getopt() and parses arguments.
