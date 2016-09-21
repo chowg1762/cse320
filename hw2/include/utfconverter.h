@@ -16,10 +16,9 @@
 #define NO_FD -1
 #define OFFSET 2 // was 4
 
-#define FIRST  10000000
-#define SECOND 20000000
-#define THIRD  30000000
-#define FOURTH 40000000
+#define LEVEL_0 0
+#define LEVEL_1 1
+#define LEVEL_2 2
 
 #ifdef __STDC__
 #define P(x) x
@@ -71,6 +70,27 @@ extern encoding srcEncoding;
 /** Which encoding to convert to */
 extern encoding convEncoding;
 
+/** Verbosity level */
+extern int verbosityLevel;
+
+/** Reading times */
+extern float[3] readingTimes;
+
+/** Converting times */
+extern float[3] convertingTimes;
+
+/** Writing times */
+extern float[3] writingTimes;
+
+/** Glyph count */
+extern int glyphCount;
+
+/** ASCII count */
+extern int asciiCount;
+
+/** Surrogate count */
+extern int surrogateCount;
+
 /**
 * Reads the BOM of the passed file and sets global endianness and encoding
 *
@@ -116,17 +136,17 @@ Glyph* convert P((Glyph* glyph, endianness end));
 * Reads the source file as UTF 8 and stores the passes the unicode to fill_glyph
 *
 * @param fd	The int pointer to the file descriptor of the input
-* @return Returns the filled glyph
+* @return Returns the number of bytes read
 */
-Glyph* read_utf_8 P((int fd, Glyph* glyph, unsigned int* buf));
+int read_utf_8 P((int fd, Glyph* glyph, unsigned int* buf));
 
 /**
 * Reads the sfdource file as UTF 16 and stores the passes the unicode to fill_glyph
 *
 * @param fd	The int pointer to the file descriptor of the input
-* @return Returns the success of reading the source file and storing its unicode
+* @return Returns the number of bytes read
 */
-Glyph* read_utf_16 P((int fd, Glyph* glyph, unsigned int* buf));
+int read_utf_16 P((int fd, Glyph* glyph, unsigned int* buf));
 
 /**
  * Fills in a glyph with the given data in data[2], with the given endianness 

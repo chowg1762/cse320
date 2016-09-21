@@ -7,18 +7,33 @@ endianness convEndian;
 encoding srcEncoding;
 encoding convEncoding;
 
+int verbosityLevel;
+float[3] readingTimes;
+float[3] convertingTimes;
+float[3] writingTimes;
+int glyphCount;
+int asciiCount;
+int surrogateCount;
+
 int main() { //int argc, char** argv
 	/* After calling parse_args(), filename, convEndian, and convEncoding
 	 should be set. */
 	//parse_args(argc, argv);
 	convFilename = "output.txt";
-	convEndian = LITTLE;
+	convEndian = BIG;
 	convEncoding = UTF_16;
 	int srcFD = open("rsrc/utf8-special.txt", O_RDONLY);
 	int convFD = open(convFilename, O_WRONLY);
 	unsigned int* buf = malloc(sizeof(int));
 	*buf = 0;
-	Glyph* glyph = malloc(sizeof(Glyph)); 
+	Glyph* glyph = malloc(sizeof(Glyph));
+
+	memset(readingTimes, 0, sizeof(readingTimes));
+	memset(convertingTimes, 0, sizeof(convertingTimes));
+	memset(writingTimes, 0, sizeof(writingTimes));
+	glyphCount = 0;
+    asciiCount = 0;
+	surrogateCount = 0;
 
 	//Read BOM
 	if (!read_bom(&srcFD)) {
@@ -60,8 +75,20 @@ int main() { //int argc, char** argv
 			swap_endianness(glyph);
 		}
 		write_glyph(glyph, convFD);
+		++glyphCount;
+		if (glyph->surrogate) {
+			++surrogateCount;
+		} else {
+			if (glyph->bytes[1] == 0 && glyph->bytes[2] == 0 
+			&& glyph->bytes[3] == 0) {
+				++asciiCount;
+			}
+		}
 		*buf = 0;
 	}
+
+
+	print_verbosity(srcFD);
 
 	/* Now deal with the rest of the bytes. 
 	while((rv = read(fd, &buf[0], 1)) == 1 &&  
@@ -124,18 +151,21 @@ void convert_encoding(Glyph* glyph) {
 		// Surrogate pair
 		if (unicode > 0x10000) {
 			unicode -= 0x10000;
-			unsigned int msb = (unicode << 10) + 0xD800;
+			unsigned int msb = (unicode >> 10) + 0xD800;
 			unsigned int lsb = (unicode & 0x3FF) + 0xDC00;
-			unicode = (msb << 10) + lsb;
+			unicode = (msb << 16) + lsb;
+			mask = 0xFF;
 			for (i = 0; i < 4; ++i) {
-				glyph->bytes[i] = (unicode >> (i * 8)) << ((3 - i) * 8) 
-				>> ((3 - i) * 8);
+				glyph->bytes[(i < 2)? i + 2 : i - 2] = 
+				(unicode & mask) >> (i * 8);
+				mask <<= 8;
 			}
+			glyph->surrogate = true;
 		} else {
 			mask = 0xFF;
 			glyph->bytes[0] = unicode & mask;
 			mask = 0xFF00;
-			glyph->bytes[1] = unicode & mask;
+			glyph->bytes[1] = (unicode & mask) >> 8;
 			glyph->bytes[2] = glyph->bytes[3] = 0;
 		}
 	}
@@ -154,7 +184,7 @@ Glyph* swap_endianness(Glyph* glyph) {
 	return glyph;
 }
 
-Glyph* read_utf_8(int fd, Glyph *glyph, unsigned int *buf) {
+int read_utf_8(int fd, Glyph *glyph, unsigned int *buf) {
 	glyph->bytes[0] = *buf;
 	int i;
 	// 1 Byte?
@@ -170,7 +200,7 @@ Glyph* read_utf_8(int fd, Glyph *glyph, unsigned int *buf) {
 		glyph->nBytes = 3;
 	}
 	// 4 Bytes?
-	else if (*buf >> 3 == 0x1D) {
+	else if (*buf >> 3 == 0x1E) {
 		glyph->nBytes = 4;
 	} else {
 		fprintf(stderr, "Encountered an invalid UTF 8 character.\n");
@@ -190,10 +220,10 @@ Glyph* read_utf_8(int fd, Glyph *glyph, unsigned int *buf) {
 			quit_converter(fd, NO_FD);
 		}
 	}
-	return glyph;
+	return glyph->nBytes;
 }
 
-Glyph* read_utf_16(int fd, Glyph* glyph, unsigned int *buf) {
+int read_utf_16(int fd, Glyph* glyph, unsigned int *buf) {
 	glyph->bytes[0] = *buf;
 	if (read(fd, buf, 1) != 1) {
 		fprintf(stderr, "Error reading file.");
@@ -239,7 +269,8 @@ Glyph* read_utf_16(int fd, Glyph* glyph, unsigned int *buf) {
 		glyph->bytes[2] = glyph->bytes[3];
 		glyph->bytes[3] = *buf;
 	}
-	return glyph;
+	++
+	return (glyph->surrogate)? 4 : 2;
 }
 
 int read_bom(int* fd) {
@@ -306,24 +337,26 @@ void write_glyph(Glyph* glyph, int fd) {
 
 int parse_args(int argc, char** argv) {
 	static struct option long_options[] = {
-		{"help", optional_argument, NULL, 'h'},
-		{"verbosity_level_1", optional_argument, NULL, 'v'},
-		{"verbosity_level_2", optional_argument, NULL, 'z'},
-		{"UTF", required_argument, NULL, 'u'},
+		{"help", optional_argument, 0, 'h'},
+		{"UTF=", required_argument, 0, 'u'},
 		{0, 0, 0, 0}
-		};
+	};
 		// TODO - ADD TO ME
 	int option_index, c;
 	char* endian_convert = NULL;
 	
 
+
 	/* If getopt() returns with a valid (its working correctly) 
 	 * return code, then process the args! */
-	if((c = getopt_long(argc, argv, "hu", long_options, &option_index)) 
+	while (((c = getopt_long(argc, argv, "hu:", long_options, &option_index)) 
 			!= -1) {
 		switch(c) { 
 			case 'u':
 				endian_convert = optarg;
+				break;
+			case 'h':
+				print_help();
 			default:
 				return 0;
 		}
