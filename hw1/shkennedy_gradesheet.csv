@@ -1,0 +1,4 @@
+Testcase,Points,Notes,Description
+Build Program,,"Automatic zero - make failed to build
+",Check if the file was built according to specification.
+Build Fail,0/100,Automatic zero,
