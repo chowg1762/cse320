@@ -17,10 +17,10 @@ int glyphCount;
 int asciiCount;
 int surrogateCount;
 
-int main() { //int argc, char** argv
+int main() { /** int argc, char** argv */
 	/* After calling parse_args(), filename, convEndian, and convEncoding
 	 should be set. */
-	//parse_args(argc, argv);
+	/** parse_args(argc, argv); */
 	convFilename = "output.txt";
 	convEndian = BIG;
 	convEncoding = UTF_16;
@@ -38,14 +38,14 @@ int main() { //int argc, char** argv
 	surrogateCount = 0;
 	struct timeval timeBefore, timeAfter;
 
-	//Read BOM
+	/** Read BOM */
 	if (!read_bom(&srcFD)) {
 		free(glyph);
 		fprintf(stderr, "File has no BOM.\n");
 		quit_converter(srcFD, NO_FD);
 	}
 
-	// Write BOM to output
+	/** Write BOM to output */
 	if (!write_bom(convFD)) {
 		free(glyph);
 		fprintf(stderr, "Error writing BOM.\n");
@@ -63,11 +63,11 @@ int main() { //int argc, char** argv
 		memset(glyph, 0, sizeof(Glyph));
 	}
 
-	// Read source file and create glyphs
+	/* Read source file and create glyphs */
 	while (read(srcFD, buf, 1) == 1) {
 		memset(glyph, 0, sizeof(Glyph));
 
-		// Read
+		/* Read */
 		gettimeofday(&timeBefore, NULL);
 		if (srcEncoding == UTF_8) {
 			read_utf_8(srcFD, glyph, buf);
@@ -78,7 +78,7 @@ int main() { //int argc, char** argv
 		readingTimes[REAL] +=  (timeAfter.tv_sec - timeBefore.tv_sec) +
 		(timeAfter.tv_usec - timeBefore.tv_usec);
 
-		// Convert
+		/** Convert */
 		gettimeofday(&timeBefore, NULL);
 		if (convEncoding != srcEncoding) {
 			convert_encoding(glyph);
@@ -90,7 +90,7 @@ int main() { //int argc, char** argv
 		convertingTimes[REAL] +=  (timeAfter.tv_sec - timeBefore.tv_sec) +
 		(timeAfter.tv_usec - timeBefore.tv_usec);
 
-		// Write
+		/** Write */
 		gettimeofday(&timeBefore, NULL);
 		write_glyph(glyph, convFD);
 		writingTimes[REAL] +=  (timeAfter.tv_sec - timeBefore.tv_sec) +
@@ -135,7 +135,7 @@ int main() { //int argc, char** argv
 void convert_encoding(Glyph* glyph) {
 	unsigned int unicode = 0;
 	int i, mask;
-	// Find unicode value of UTF 8
+	/** Find unicode value of UTF 8 */
 	if (srcEncoding == UTF_8) {
 		if (glyph->nBytes == 1) {
 			unicode = glyph->bytes[0];
@@ -153,23 +153,23 @@ void convert_encoding(Glyph* glyph) {
 			}
 		}
 	} 
-	// Find unicode value of UTF 16 
+	/** Find unicode value of UTF 16 */ 
 	else {
 		if (!glyph->surrogate) {
 			unicode = glyph->bytes[0] + (glyph->bytes[1] << 8);
 		} else {
-			// TODO - Extra credit
+			/** TODO - Extra credit */
 		}
 	}
 	memset(glyph, 0, 4);
-	// Use unicode to make new encoding
-	// Unicode -> UTF 8
+	/** Use unicode to make new encoding
+	* Unicode -> UTF 8 */
 	if (convEncoding == UTF_8) {
-		// TODO - Extra credit
+		/** TODO - Extra credit */
 	} 
-	// Unicode -> UTF 16
+	/** Unicode -> UTF 16 */
 	else {
-		// Surrogate pair
+		/** Surrogate pair */
 		if (unicode > 0x10000) {
 			unicode -= 0x10000;
 			unsigned int msb = (unicode >> 10) + 0xD800;
@@ -208,19 +208,19 @@ Glyph* swap_endianness(Glyph* glyph) {
 Glyph* read_utf_8(int fd, Glyph *glyph, unsigned int *buf) {
 	glyph->bytes[0] = *buf;
 	int i;
-	// 1 Byte?
+	/** 1 Byte? */
 	if (*buf >> 7 == 0) {
 		glyph->nBytes = 1;
 	}
-	// 2 Bytes?
+	/** 2 Bytes? */
 	else if (*buf >> 5 == 0x6) {
 		glyph->nBytes = 2;
 	} 
-	// 3 Bytes?
+	/** 3 Bytes? */
 	else if (*buf >> 4 == 0xE) {
 		glyph->nBytes = 3;
 	}
-	// 4 Bytes?
+	/** 4 Bytes? */
 	else if (*buf >> 3 == 0x1E) {
 		glyph->nBytes = 4;
 	} else {
@@ -229,7 +229,7 @@ Glyph* read_utf_8(int fd, Glyph *glyph, unsigned int *buf) {
 		free(glyph);
 		quit_converter(fd, NO_FD);
 	}
-	// Read the bytes
+	/** Read the bytes */
 	for (i = 1; i < glyph->nBytes; ++i) {
 		*buf = 0;
 		if (read(fd, buf, 1) && (*buf >> 6 == 2)) {
@@ -259,7 +259,7 @@ Glyph* read_utf_16(int fd, Glyph* glyph, unsigned int *buf) {
 		glyph->bytes[0] = *buf;
 	}
 	unsigned int temp = (glyph->bytes[0] + (glyph->bytes[1] << 8));
-	// Check if this character is a surrogate pair
+	/** Check if this character is a surrogate pair */
 	if (temp >= 0xD800 && temp <= 0xDBFF) {
 		if (read(fd, &glyph->bytes[2], 1) == 1 && 
 		read(fd, &glyph->bytes[3], 1)) {
@@ -361,11 +361,25 @@ int parse_args(int argc, char** argv) {
 		{"UTF=", required_argument, 0, 'u'},
 		{0, 0, 0, 0}
 	};
-		// TODO - ADD TO ME
+		/** TODO - ADD TO ME */
 	int option_index, c;
 	char* endian_convert = NULL;
 	
-
+	while (c = getopt(argc, argv, "hv:", ) != -1) {
+		switch(c) {
+			case 'v':
+				if (verbosityLevel == LEVEL_0) {
+					verbosityLevel = LEVEL_1;
+				} else {
+					verbosityLevel = LEVEL_2;
+				}
+				break;
+			case 'h':
+				print_help();
+			default:
+				print_help();
+		}
+	}
 
 	/* If getopt() returns with a valid (its working correctly) 
 	 * return code, then process the args! */
@@ -412,6 +426,13 @@ void print_help(void) {
 
 void print_verbosity(int fd) {
 	fd++;
+	char hostname[101],;
+	hostname[100] = '\0';
+	gethostname(&hostname, sizeof(hostname));
+	
+	char pwd[301];
+	pwd[300] = '\0';
+	getcwd(pwd, sizeof(pwd));
 }
 
 void quit_converter(int srcFD, int convFD) {
