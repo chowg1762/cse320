@@ -20,6 +20,10 @@
 #define LEVEL_1 1
 #define LEVEL_2 2
 
+#define REAL 0
+#define USER 1
+#define SYS 2
+
 #ifdef __STDC__
 #define P(x) x
 #else
@@ -74,13 +78,13 @@ extern encoding convEncoding;
 extern int verbosityLevel;
 
 /** Reading times */
-extern float[3] readingTimes;
+extern float readingTimes[3];
 
 /** Converting times */
-extern float[3] convertingTimes;
+extern float convertingTimes[3];
 
 /** Writing times */
-extern float[3] writingTimes;
+extern float writingTimes[3];
 
 /** Glyph count */
 extern int glyphCount;
@@ -138,7 +142,7 @@ Glyph* convert P((Glyph* glyph, endianness end));
 * @param fd	The int pointer to the file descriptor of the input
 * @return Returns the number of bytes read
 */
-int read_utf_8 P((int fd, Glyph* glyph, unsigned int* buf));
+Glyph* read_utf_8 P((int fd, Glyph* glyph, unsigned int* buf));
 
 /**
 * Reads the sfdource file as UTF 16 and stores the passes the unicode to fill_glyph
@@ -146,7 +150,7 @@ int read_utf_8 P((int fd, Glyph* glyph, unsigned int* buf));
 * @param fd	The int pointer to the file descriptor of the input
 * @return Returns the number of bytes read
 */
-int read_utf_16 P((int fd, Glyph* glyph, unsigned int* buf));
+Glyph* read_utf_16 P((int fd, Glyph* glyph, unsigned int* buf));
 
 /**
  * Fills in a glyph with the given data in data[2], with the given endianness 
@@ -182,6 +186,11 @@ int parse_args P((int, char**));
  * Prints the usage statement.
  */
 void print_help P((void));
+
+/**
+* Prints extra information about program execution
+*/
+void print_verbosity P((int));
 
 /**
  * Closes file descriptors and frees list and possibly does other

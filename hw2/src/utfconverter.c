@@ -1,4 +1,6 @@
 #include "utfconverter.h"
+#include <time.h>
+#include <sys/time.h>
 
 char* srcFilename;
 char* convFilename;
@@ -8,9 +10,9 @@ encoding srcEncoding;
 encoding convEncoding;
 
 int verbosityLevel;
-float[3] readingTimes;
-float[3] convertingTimes;
-float[3] writingTimes;
+float readingTimes[3];
+float convertingTimes[3];
+float writingTimes[3];
 int glyphCount;
 int asciiCount;
 int surrogateCount;
@@ -34,6 +36,7 @@ int main() { //int argc, char** argv
 	glyphCount = 0;
     asciiCount = 0;
 	surrogateCount = 0;
+	struct timeval timeBefore, timeAfter;
 
 	//Read BOM
 	if (!read_bom(&srcFD)) {
@@ -63,18 +66,36 @@ int main() { //int argc, char** argv
 	// Read source file and create glyphs
 	while (read(srcFD, buf, 1) == 1) {
 		memset(glyph, 0, sizeof(Glyph));
+
+		// Read
+		gettimeofday(&timeBefore, NULL);
 		if (srcEncoding == UTF_8) {
 			read_utf_8(srcFD, glyph, buf);
-		} else if (srcEncoding == UTF_16) {
+		} else {
 			read_utf_16(srcFD, glyph, buf);
  		}
+		gettimeofday(&timeAfter, NULL);
+		readingTimes[REAL] +=  (timeAfter.tv_sec - timeBefore.tv_sec) +
+		(timeAfter.tv_usec - timeBefore.tv_usec);
+
+		// Convert
+		gettimeofday(&timeBefore, NULL);
 		if (convEncoding != srcEncoding) {
 			convert_encoding(glyph);
 		}
+
 		if (convEndian != LITTLE) {
 			swap_endianness(glyph);
 		}
+		convertingTimes[REAL] +=  (timeAfter.tv_sec - timeBefore.tv_sec) +
+		(timeAfter.tv_usec - timeBefore.tv_usec);
+
+		// Write
+		gettimeofday(&timeBefore, NULL);
 		write_glyph(glyph, convFD);
+		writingTimes[REAL] +=  (timeAfter.tv_sec - timeBefore.tv_sec) +
+		(timeAfter.tv_usec - timeBefore.tv_usec);
+
 		++glyphCount;
 		if (glyph->surrogate) {
 			++surrogateCount;
@@ -184,7 +205,7 @@ Glyph* swap_endianness(Glyph* glyph) {
 	return glyph;
 }
 
-int read_utf_8(int fd, Glyph *glyph, unsigned int *buf) {
+Glyph* read_utf_8(int fd, Glyph *glyph, unsigned int *buf) {
 	glyph->bytes[0] = *buf;
 	int i;
 	// 1 Byte?
@@ -220,10 +241,10 @@ int read_utf_8(int fd, Glyph *glyph, unsigned int *buf) {
 			quit_converter(fd, NO_FD);
 		}
 	}
-	return glyph->nBytes;
+	return glyph;
 }
 
-int read_utf_16(int fd, Glyph* glyph, unsigned int *buf) {
+Glyph* read_utf_16(int fd, Glyph* glyph, unsigned int *buf) {
 	glyph->bytes[0] = *buf;
 	if (read(fd, buf, 1) != 1) {
 		fprintf(stderr, "Error reading file.");
@@ -269,8 +290,7 @@ int read_utf_16(int fd, Glyph* glyph, unsigned int *buf) {
 		glyph->bytes[2] = glyph->bytes[3];
 		glyph->bytes[3] = *buf;
 	}
-	++
-	return (glyph->surrogate)? 4 : 2;
+	return glyph;
 }
 
 int read_bom(int* fd) {
@@ -349,7 +369,7 @@ int parse_args(int argc, char** argv) {
 
 	/* If getopt() returns with a valid (its working correctly) 
 	 * return code, then process the args! */
-	while (((c = getopt_long(argc, argv, "hu:", long_options, &option_index)) 
+	while ((c = getopt_long(argc, argv, "hu:", long_options, &option_index)) 
 			!= -1) {
 		switch(c) { 
 			case 'u':
@@ -388,6 +408,10 @@ int parse_args(int argc, char** argv) {
 void print_help(void) {
 	printf("%s", USAGE); 
 	quit_converter(NO_FD, NO_FD);
+}
+
+void print_verbosity(int fd) {
+	fd++;
 }
 
 void quit_converter(int srcFD, int convFD) {
