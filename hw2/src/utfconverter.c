@@ -1,6 +1,6 @@
 #include "utfconverter.h"
-#include <time.h>
-#include <sys/time.h>
+
+#define calc_time_diff ((float)afterUsage.ru_stime.tv_usec - (float)beforeUsage.ru_stime.tv_usec)
 
 char* srcFilename;
 char* convFilename;
@@ -10,20 +10,25 @@ encoding srcEncoding;
 encoding convEncoding;
 
 int verbosityLevel;
-float readingTimes[3];
-float convertingTimes[3];
-float writingTimes[3];
+double readingTimes[3];
+double convertingTimes[3];
+double writingTimes[3];
 int glyphCount;
 int asciiCount;
 int surrogateCount;
 
-int main() { /** int argc, char** argv */
+int main(int argc, char** argv) { /**  */
 	/* After calling parse_args(), filename, convEndian, and convEncoding
 	 should be set. */
-	/** parse_args(argc, argv); */
+	struct timeval timeBefore, timeAfter;
+	struct rusage beforeUsage, afterUsage, startUsage;
+	getrusage(RUSAGE_SELF, &startUsage);
+
+ 	parse_args(argc, argv); 
 	convFilename = "output.txt";
 	convEndian = BIG;
 	convEncoding = UTF_16;
+	verbosityLevel = LEVEL_2;
 	int srcFD = open("rsrc/utf8-special.txt", O_RDONLY);
 	int convFD = open(convFilename, O_WRONLY);
 	unsigned int* buf = malloc(sizeof(int));
@@ -36,21 +41,38 @@ int main() { /** int argc, char** argv */
 	glyphCount = 0;
     asciiCount = 0;
 	surrogateCount = 0;
-	struct timeval timeBefore, timeAfter;
 
 	/** Read BOM */
+	getrusage(RUSAGE_SELF, &beforeUsage);
+	gettimeofday(&timeBefore, NULL);
+	
 	if (!read_bom(&srcFD)) {
 		free(glyph);
 		fprintf(stderr, "File has no BOM.\n");
-		quit_converter(srcFD, NO_FD);
+		quit_converter(srcFD, NO_FD, EXIT_FAILURE);
 	}
 
+	getrusage(RUSAGE_SELF, &afterUsage);
+	readingTimes[SYS] += calc_time_diff;
+	readingTimes[USER] += calc_time_diff;
+	gettimeofday(&timeAfter, NULL);
+	readingTimes[REAL] += calc_time_diff;
+
 	/** Write BOM to output */
+	getrusage(RUSAGE_SELF, &beforeUsage);
+	gettimeofday(&timeBefore, NULL);
+	
 	if (!write_bom(convFD)) {
 		free(glyph);
 		fprintf(stderr, "Error writing BOM.\n");
-		quit_converter(srcFD, convFD);
+		quit_converter(srcFD, convFD, EXIT_FAILURE);
 	}
+
+	getrusage(RUSAGE_SELF, &afterUsage);
+	writingTimes[SYS] += calc_time_diff;
+	writingTimes[USER] += calc_time_diff;
+	gettimeofday(&timeAfter, NULL);
+	writingTimes[REAL] += calc_time_diff;
 	
 	void* memset_return = memset(glyph, 0, sizeof(Glyph));
 	/* Memory write failed, recover from it: */
@@ -68,18 +90,25 @@ int main() { /** int argc, char** argv */
 		memset(glyph, 0, sizeof(Glyph));
 
 		/* Read */
+		getrusage(RUSAGE_SELF, &beforeUsage);
 		gettimeofday(&timeBefore, NULL);
+
 		if (srcEncoding == UTF_8) {
 			read_utf_8(srcFD, glyph, buf);
 		} else {
 			read_utf_16(srcFD, glyph, buf);
  		}
-		gettimeofday(&timeAfter, NULL);
-		readingTimes[REAL] +=  (timeAfter.tv_sec - timeBefore.tv_sec) +
-		(timeAfter.tv_usec - timeBefore.tv_usec);
 
+		getrusage(RUSAGE_SELF, &afterUsage);
+		readingTimes[SYS] += calc_time_diff;
+		readingTimes[USER] += calc_time_diff;;
+		gettimeofday(&timeAfter, NULL);
+		readingTimes[REAL] += calc_time_diff;;
+		
 		/** Convert */
+		getrusage(RUSAGE_SELF, &beforeUsage);
 		gettimeofday(&timeBefore, NULL);
+
 		if (convEncoding != srcEncoding) {
 			convert_encoding(glyph);
 		}
@@ -87,15 +116,25 @@ int main() { /** int argc, char** argv */
 		if (convEndian != LITTLE) {
 			swap_endianness(glyph);
 		}
-		convertingTimes[REAL] +=  (timeAfter.tv_sec - timeBefore.tv_sec) +
-		(timeAfter.tv_usec - timeBefore.tv_usec);
+
+		getrusage(RUSAGE_SELF, &afterUsage);
+		convertingTimes[SYS] += calc_time_diff;
+		convertingTimes[USER] += calc_time_diff;
+		gettimeofday(&timeAfter, NULL);
+		convertingTimes[REAL] += calc_time_diff;
 
 		/** Write */
 		gettimeofday(&timeBefore, NULL);
-		write_glyph(glyph, convFD);
-		writingTimes[REAL] +=  (timeAfter.tv_sec - timeBefore.tv_sec) +
-		(timeAfter.tv_usec - timeBefore.tv_usec);
 
+		write_glyph(glyph, convFD);
+
+		getrusage(RUSAGE_SELF, &afterUsage);
+		writingTimes[SYS] += calc_time_diff;
+		writingTimes[USER] += calc_time_diff;
+		gettimeofday(&timeAfter, NULL);
+		writingTimes[REAL] += calc_time_diff;
+		
+		/** Counts */
 		++glyphCount;
 		if (glyph->surrogate) {
 			++surrogateCount;
@@ -109,7 +148,7 @@ int main() { /** int argc, char** argv */
 	}
 
 
-	print_verbosity(srcFD);
+	print_verbosity(srcFD, startUsage);
 
 	/* Now deal with the rest of the bytes. 
 	while((rv = read(fd, &buf[0], 1)) == 1 &&  
@@ -128,7 +167,7 @@ int main() { /** int argc, char** argv */
 	} */
 	free(buf);
 	free(glyph);
-	quit_converter(srcFD, convFD);
+	quit_converter(srcFD, convFD, EXIT_SUCCESS);
 	return 0;
 }
 
@@ -227,7 +266,7 @@ Glyph* read_utf_8(int fd, Glyph *glyph, unsigned int *buf) {
 		fprintf(stderr, "Encountered an invalid UTF 8 character.\n");
 		free(buf);
 		free(glyph);
-		quit_converter(fd, NO_FD);
+		quit_converter(fd, NO_FD, EXIT_FAILURE);
 	}
 	/** Read the bytes */
 	for (i = 1; i < glyph->nBytes; ++i) {
@@ -238,7 +277,7 @@ Glyph* read_utf_8(int fd, Glyph *glyph, unsigned int *buf) {
 			fprintf(stderr, "Encountered an invalid UTF 8 character.\n");
 			free(buf);
 			free(glyph);
-			quit_converter(fd, NO_FD);
+			quit_converter(fd, NO_FD, EXIT_FAILURE);
 		}
 	}
 	return glyph;
@@ -250,7 +289,7 @@ Glyph* read_utf_16(int fd, Glyph* glyph, unsigned int *buf) {
 		fprintf(stderr, "Error reading file.");
 		free(buf);
 		free(glyph);
-		quit_converter(fd, NO_FD);
+		quit_converter(fd, NO_FD, EXIT_FAILURE);
 	}
 	if (srcEndian == LITTLE) {
 		glyph->bytes[1] = *buf;
@@ -278,7 +317,7 @@ Glyph* read_utf_16(int fd, Glyph* glyph, unsigned int *buf) {
 			fprintf(stderr, "Error reading file.");
 			free(buf);
 			free(glyph);
-			quit_converter(fd, NO_FD);
+			quit_converter(fd, NO_FD, EXIT_FAILURE);
 		}
 	} else {
 		glyph->surrogate = false;
@@ -356,17 +395,39 @@ void write_glyph(Glyph* glyph, int fd) {
 }
 
 int parse_args(int argc, char** argv) {
+	convEncoding = 2;
+	convEndian = 2;
 	static struct option long_options[] = {
 		{"help", optional_argument, 0, 'h'},
 		{"UTF=", required_argument, 0, 'u'},
+		{NULL, optional_argument, 0, 'v'},
 		{0, 0, 0, 0}
 	};
 		/** TODO - ADD TO ME */
-	int option_index, c;
-	char* endian_convert = NULL;
-	
-	while (c = getopt(argc, argv, "hv:", ) != -1) {
-		switch(c) {
+	int option_index;
+	char c;
+
+	while ((c = getopt_long(argc, argv, "hu:v", long_options, &option_index)) 
+			!= -1) {
+		switch(c) { 
+			case 'u':
+				if (optarg != NULL) {
+					if (strcmp(optarg, "16LE") == 0) {
+						convEncoding = UTF_16;
+						convEndian = LITTLE;
+					} else if (strcmp(optarg, "16BE") == 0) {
+						convEncoding = UTF_16;
+						convEndian = BIG;
+					} else if (strcmp(optarg, "8") == 0) {
+						convEncoding = UTF_8;
+						convEndian = LITTLE;
+					} else {
+						print_help(EXIT_FAILURE);
+					}
+				}
+				break;
+			case 'h':
+				print_help(EXIT_SUCCESS);
 			case 'v':
 				if (verbosityLevel == LEVEL_0) {
 					verbosityLevel = LEVEL_1;
@@ -374,68 +435,73 @@ int parse_args(int argc, char** argv) {
 					verbosityLevel = LEVEL_2;
 				}
 				break;
-			case 'h':
-				print_help();
-			default:
-				print_help();
+			case '?':
+				print_help(EXIT_FAILURE);
 		}
+	}
+
+	if(optind < argc) {
+		//if ()
+		strcpy(srcFilename, argv[optind]);
+	} else {
+		fprintf(stderr, "Filename not given.\n");
+		print_help(EXIT_FAILURE);
 	}
 
 	/* If getopt() returns with a valid (its working correctly) 
 	 * return code, then process the args! */
-	while ((c = getopt_long(argc, argv, "hu:", long_options, &option_index)) 
-			!= -1) {
-		switch(c) { 
-			case 'u':
-				endian_convert = optarg;
-				break;
-			case 'h':
-				print_help();
-			default:
-				return 0;
-		}
 
-	}
-
-	if(optind < argc){
-		strcpy(srcFilename, argv[optind]);
-	} else {
-		fprintf(stderr, "Filename not given.\n");
-		print_help();
-	}
-
-	if(endian_convert == NULL) {
+	if(convEncoding == 2) {
 		fprintf(stderr, "Converson mode not given.\n");
-		print_help();
-	}
-
-	if(strcmp(endian_convert, "LE")) { 
-		convEndian = LITTLE;
-	} else if(strcmp(endian_convert, "BE")) {
-		convEndian = BIG;
-	} else {
-		return 0;
+		print_help(EXIT_FAILURE);
 	}
 	return 1;
 }
 
-void print_help(void) {
+void print_help(int exit_status) {
 	printf("%s", USAGE); 
-	quit_converter(NO_FD, NO_FD);
+	quit_converter(NO_FD, NO_FD, exit_status);
 }
 
-void print_verbosity(int fd) {
+void print_verbosity(int fd, struct rusage usage) {
+	if (verbosityLevel == LEVEL_0) {
+		return;
+	}
+	/** Level 1 + 2 */
+	int fileSize = lseek(fd, 0, SEEK_END) / 1000;
+	fprintf(stderr, "Input file size: %d kb\n", fileSize);
+
+	
+
+	fprintf(stderr, "Input file encoding: ");
+	if (srcEncoding == UTF_8) {
+			fprintf(stderr, "UTF-8\n");
+	} else {
+		if (srcEndian == LITTLE) {
+			fprintf(stderr, "UTF-16LE");
+		else {
+			fprintf(stderr, "UTF-16BE");
+		}
+	}
+
+	fprintf(stderr, "Reading:\tReal: %f\n\tUser: %f\n\tSys: %f\n\n", 
+	readingTimes[REAL], readingTimes[USER], readingTimes[SYS]);
+	fprintf(stderr, "Writing:\tReal: %f\n\tUser: %f\n\tSys: %f\n\n", 
+	writingTimes[REAL], writingTimes[USER], writingTimes[SYS]);
+	fprintf(stderr, "Reading:\tReal: %f\n\tUser: %f\n\tSys: %f\n\n", 
+	readingTimes[REAL], readingTimes[USER], readingTimes[SYS]);
 	fd++;
-	char hostname[101],;
+	char hostname[101];
 	hostname[100] = '\0';
-	gethostname(&hostname, sizeof(hostname));
+	gethostname(hostname, sizeof(hostname));
 	
 	char pwd[301];
 	pwd[300] = '\0';
 	getcwd(pwd, sizeof(pwd));
+	getrusage(RUSAGE_SELF, &usage);
 }
 
-void quit_converter(int srcFD, int convFD) {
+void quit_converter(int srcFD, int convFD, int exit_status) {
 	close(STDERR_FILENO);
 	close(STDIN_FILENO);
 	close(STDOUT_FILENO);
@@ -443,5 +509,5 @@ void quit_converter(int srcFD, int convFD) {
 		close(srcFD);
 	if (convFD != NO_FD)
 		close(convFD);
-	exit(0);
+	exit(exit_status);
 }

@@ -8,7 +8,8 @@
 #include <getopt.h>
 #include <string.h>
 #include <stdbool.h>
-
+#include <sys/time.h>
+#include <sys/resource.h>
 
 #define MAX_BYTES 4
 #define SURROGATE_SIZE 4
@@ -77,14 +78,18 @@ extern encoding convEncoding;
 /** Verbosity level */
 extern int verbosityLevel;
 
+/**Total time */
+extern struct rusage usage;
+extern struct timeval beforeTime, afterTime;
+
 /** Reading times */
-extern float readingTimes[3];
+extern double readingTimes[3];
 
 /** Converting times */
-extern float convertingTimes[3];
+extern double convertingTimes[3];
 
 /** Writing times */
-extern float writingTimes[3];
+extern double writingTimes[3];
 
 /** Glyph count */
 extern int glyphCount;
@@ -185,12 +190,12 @@ int parse_args P((int, char**));
 /**
  * Prints the usage statement.
  */
-void print_help P((void));
+void print_help P((int));
 
 /**
 * Prints extra information about program execution
 */
-void print_verbosity P((int));
+void print_verbosity P((int, struct rusage));
 
 /**
  * Closes file descriptors and frees list and possibly does other
@@ -200,6 +205,6 @@ void print_verbosity P((int));
  * the macro value NO_FD (-1) to signify that we have no open file
  * to close.
  */
-void quit_converter P((int, int));
+void quit_converter P((int, int, int));
 
 #endif
