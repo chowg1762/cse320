@@ -1,17 +1,24 @@
+SRCDIR = src
+INCDIR = include
+BINDIR = bin
+BLDDIR = build
+RSRCDIR = rsrc
+
 CC = gcc
-SRC = $(wildcard src/*.c)
-INCLUDE = $(wildcard include/)
-BIN = utfconverter
-CFLAGS = -g -Wall -Werror -pedantic -Wextra 
-REQ = $(SRC) $(wildcard include/*.h)
+SRC = $(SRCDIR)/utfconverter.c
+BIN = $(BINDIR)/utf
+CFLAGS = -g -Wall -Werror -pedantic -Wextra -I$(INCDIR)
+
+OBJS = $(SRC:$(SRCDIR)/%.c=$(BLDDIR)/%.o)
 
 all: $(BIN)
 
-$(BIN): $(REQ)
-	$(CC) $(CFLAGS) -I $(INCLUDE) $(SRC) -o $(BIN)
+$(BIN): $(OBJS)
+	$(CC) $(CFLAGS) $(SRC) -o $(BIN)
+
+$(BLDDIR)/%.o: $(SRCDIR)/%.c
+	$(CC) $(CFLAGS) -c $< -o $@
 
 .PHONY: clean
-
 clean:
-	rm -f *.o $(BIN)
-
+	rm -f $(OBJS) $(BIN)

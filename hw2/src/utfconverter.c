@@ -48,7 +48,6 @@ int main(int argc, char** argv) { /**  */
 	
 	if (!read_bom(&srcFD)) {
 		free(glyph);
-		fprintf(stderr, "File has no BOM.\n");
 		quit_converter(srcFD, NO_FD, EXIT_FAILURE);
 	}
 
