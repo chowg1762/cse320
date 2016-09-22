@@ -21,16 +21,16 @@ int main(int argc, char** argv) { /**  */
 	/* After calling parse_args(), filename, convEndian, and convEncoding
 	 should be set. */
 	struct timeval timeBefore, timeAfter;
-	struct rusage beforeUsage, afterUsage, startUsage;
-	getrusage(RUSAGE_SELF, &startUsage);
+	struct rusage beforeUsage, afterUsage;
 
  	parse_args(argc, argv); 
-	convFilename = "output.txt";
-	convEndian = BIG;
-	convEncoding = UTF_16;
-	verbosityLevel = LEVEL_2;
-	int srcFD = open("rsrc/utf8-special.txt", O_RDONLY);
-	int convFD = open(convFilename, O_WRONLY);
+	int srcFD = open(srcFilename, O_RDONLY);
+	int convFD;
+	if (convFilename != NULL) {
+		convFD = open(convFilename, O_WRONLY);
+	} else {
+		convFD = STDOUT_FILENO;
+	}
 	unsigned int* buf = malloc(sizeof(int));
 	*buf = 0;
 	Glyph* glyph = malloc(sizeof(Glyph));
@@ -148,7 +148,7 @@ int main(int argc, char** argv) { /**  */
 	}
 
 
-	print_verbosity(srcFD, startUsage);
+	print_verbosity(srcFD);
 
 	/* Now deal with the rest of the bytes. 
 	while((rv = read(fd, &buf[0], 1)) == 1 &&  
@@ -405,51 +405,64 @@ int parse_args(int argc, char** argv) {
 	};
 		/** TODO - ADD TO ME */
 	int option_index;
-	char c;
+	char c = '\0';
 
-	while ((c = getopt_long(argc, argv, "hu:v", long_options, &option_index)) 
-			!= -1) {
-		switch(c) { 
-			case 'u':
-				if (optarg != NULL) {
-					if (strcmp(optarg, "16LE") == 0) {
-						convEncoding = UTF_16;
-						convEndian = LITTLE;
-					} else if (strcmp(optarg, "16BE") == 0) {
-						convEncoding = UTF_16;
-						convEndian = BIG;
-					} else if (strcmp(optarg, "8") == 0) {
-						convEncoding = UTF_8;
-						convEndian = LITTLE;
+	while (optind < argc) {
+		while (c != -1 && (c = getopt_long(argc, argv, "hu:v", long_options, 
+		&option_index)) != -1) {
+			switch(c) { 
+				case 'u':
+					if (convEncoding == 2) {
+						if (strcmp(optarg, "16LE") == 0) {
+							convEncoding = UTF_16;
+							convEndian = LITTLE;
+						} else if (strcmp(optarg, "16BE") == 0) {
+							convEncoding = UTF_16;
+							convEndian = BIG;
+						} else if (strcmp(optarg, "8") == 0) {
+							convEncoding = UTF_8;
+							convEndian = LITTLE;
+						} else {
+							print_help(EXIT_FAILURE);
+						}
 					} else {
 						print_help(EXIT_FAILURE);
 					}
-				}
-				break;
-			case 'h':
-				print_help(EXIT_SUCCESS);
-			case 'v':
-				if (verbosityLevel == LEVEL_0) {
-					verbosityLevel = LEVEL_1;
-				} else {
-					verbosityLevel = LEVEL_2;
-				}
-				break;
-			case '?':
+					break;
+				case 'h':
+					if (argc == 2) {
+						print_help(EXIT_SUCCESS);
+					} else {
+						print_help(EXIT_FAILURE);
+					}
+				case 'v':
+					if (verbosityLevel == LEVEL_0) {
+						verbosityLevel = LEVEL_1;
+					} else {
+						verbosityLevel = LEVEL_2;
+					}
+					break;
+				case '?':
+					print_help(EXIT_FAILURE);
+			}
+		}
+		if (c == -1) {
+			if (srcFilename == NULL) {
+				srcFilename = calloc(101, sizeof(char));
+				strcpy(srcFilename, argv[optind]);
+			} else if (convFilename == NULL) {
+				convFilename = calloc(101, sizeof(char));
+				strcpy(convFilename, argv[optind]);
+			} else {
 				print_help(EXIT_FAILURE);
+			}
+			++optind;
 		}
 	}
 
-	if(optind < argc) {
-		//if ()
-		strcpy(srcFilename, argv[optind]);
-	} else {
-		fprintf(stderr, "Filename not given.\n");
+	if (srcFilename == NULL) {
 		print_help(EXIT_FAILURE);
 	}
-
-	/* If getopt() returns with a valid (its working correctly) 
-	 * return code, then process the args! */
 
 	if(convEncoding == 2) {
 		fprintf(stderr, "Converson mode not given.\n");
@@ -463,45 +476,74 @@ void print_help(int exit_status) {
 	quit_converter(NO_FD, NO_FD, exit_status);
 }
 
-void print_verbosity(int fd, struct rusage usage) {
+void print_verbosity(int fd) {
 	if (verbosityLevel == LEVEL_0) {
 		return;
 	}
 	/** Level 1 + 2 */
-	int fileSize = lseek(fd, 0, SEEK_END) / 1000;
-	fprintf(stderr, "Input file size: %d kb\n", fileSize);
+	float fileSize = (float)lseek(fd, 0, SEEK_END) / 1000.0;
+	fprintf(stderr, "  Input file size: %f kb\n", fileSize);
 
-	
+	char *srcPWD = realpath(srcFilename, NULL);
+	fprintf(stderr, "  Input file path: %s\n", srcPWD);
+	free(srcPWD);
 
-	fprintf(stderr, "Input file encoding: ");
+	fprintf(stderr, "  Input file encoding: ");
 	if (srcEncoding == UTF_8) {
 			fprintf(stderr, "UTF-8\n");
 	} else {
 		if (srcEndian == LITTLE) {
-			fprintf(stderr, "UTF-16LE");
-		else {
-			fprintf(stderr, "UTF-16BE");
+			fprintf(stderr, "UTF-16LE\n");
+		} else {
+			fprintf(stderr, "UTF-16BE\n");
 		}
 	}
 
-	fprintf(stderr, "Reading:\tReal: %f\n\tUser: %f\n\tSys: %f\n\n", 
+	fprintf(stderr, "  Output encoding: ");
+	if (convEncoding == UTF_8) {
+			fprintf(stderr, "UTF-8\n");
+	} else {
+		if (convEndian == LITTLE) {
+			fprintf(stderr, "UTF-16LE\n");
+		} else {
+			fprintf(stderr, "UTF-16BE\n");
+		}
+	}
+
+	char hostMachine[201];
+	hostMachine[200] = '\0';
+	gethostname(hostMachine, 200);
+	fprintf(stderr, "  Hostmachine: %s\n", hostMachine);
+
+	struct utsname osInfo;
+	uname(&osInfo);
+	fprintf(stderr, "  Operating System: %s\n", osInfo.sysname);
+
+	if (verbosityLevel == LEVEL_1) {
+		return;
+	}
+
+	fprintf(stderr, "  Reading: Real: %f, User: %f, Sys: %f\n", 
 	readingTimes[REAL], readingTimes[USER], readingTimes[SYS]);
-	fprintf(stderr, "Writing:\tReal: %f\n\tUser: %f\n\tSys: %f\n\n", 
+
+	fprintf(stderr, "  Converting: Real: %f, User: %f, Sys: %f\n", 
+	convertingTimes[REAL], convertingTimes[USER], convertingTimes[SYS]);
+
+	fprintf(stderr, "  Writing: Real: %f, User: %f, Sys: %f\n", 
 	writingTimes[REAL], writingTimes[USER], writingTimes[SYS]);
-	fprintf(stderr, "Reading:\tReal: %f\n\tUser: %f\n\tSys: %f\n\n", 
-	readingTimes[REAL], readingTimes[USER], readingTimes[SYS]);
-	fd++;
-	char hostname[101];
-	hostname[100] = '\0';
-	gethostname(hostname, sizeof(hostname));
+
+	fprintf(stderr, "  ASCII: %d%%\n", (100 * asciiCount) / glyphCount);
 	
-	char pwd[301];
-	pwd[300] = '\0';
-	getcwd(pwd, sizeof(pwd));
-	getrusage(RUSAGE_SELF, &usage);
+	fprintf(stderr, "  Surrogates: %d%%\n", (100 * surrogateCount) / glyphCount);
+
+	fprintf(stderr, "  Glyphs: %d\n", glyphCount);
 }
 
 void quit_converter(int srcFD, int convFD, int exit_status) {
+	free(srcFilename);
+	if (convFilename != NULL) {
+		free(convFilename);
+	}
 	close(STDERR_FILENO);
 	close(STDIN_FILENO);
 	close(STDOUT_FILENO);

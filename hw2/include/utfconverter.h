@@ -6,10 +6,12 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <getopt.h>
+#include <limits.h>
 #include <string.h>
 #include <stdbool.h>
 #include <sys/time.h>
 #include <sys/resource.h>
+#include <sys/utsname.h>
 
 #define MAX_BYTES 4
 #define SURROGATE_SIZE 4
@@ -195,7 +197,7 @@ void print_help P((int));
 /**
 * Prints extra information about program execution
 */
-void print_verbosity P((int, struct rusage));
+void print_verbosity P((int));
 
 /**
  * Closes file descriptors and frees list and possibly does other
