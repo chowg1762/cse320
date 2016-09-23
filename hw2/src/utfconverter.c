@@ -73,8 +73,7 @@ int main(int argc, char** argv) { /**  */
 	
 	if (!write_bom(convFD)) {
 		free(glyph);
-		fprintf(stderr, "Error writing BOM.\n");
-		quit_converter(srcFD, convFD, EXIT_FAILURE);
+		print_help(EXIT_FAILURE);
 	}
 
 	getrusage(RUSAGE_SELF, &afterUsage);
@@ -247,10 +246,9 @@ Glyph* read_utf_8(int fd, Glyph *glyph, unsigned char *buf) {
 	else if (*buf >> 3 == 0x1E) {
 		glyph->nBytes = 4;
 	} else {
-		fprintf(stderr, "Encountered an invalid UTF 8 character.\n");
 		free(buf);
 		free(glyph);
-		quit_converter(fd, NO_FD, EXIT_FAILURE);
+		print_help(EXIT_FAILURE);
 	}
 	/** Read the bytes */
 	for (i = 1; i < glyph->nBytes; ++i) {
@@ -258,10 +256,9 @@ Glyph* read_utf_8(int fd, Glyph *glyph, unsigned char *buf) {
 		if (read(fd, buf, 1) && (*buf >> 6 == 2)) {
 			glyph->bytes[i] = *buf;
 		} else {
-			fprintf(stderr, "Encountered an invalid UTF 8 character.\n");
 			free(buf);
 			free(glyph);
-			quit_converter(fd, NO_FD, EXIT_FAILURE);
+			print_help(EXIT_FAILURE);
 		}
 	}
 	return glyph;
@@ -299,10 +296,9 @@ Glyph* read_utf_16(int fd, Glyph* glyph, unsigned char *buf) {
 				glyph->surrogate =false;
 			}
 		} else {
-			fprintf(stderr, "Error reading file.");
 			free(buf);
 			free(glyph);
-			quit_converter(fd, NO_FD, EXIT_FAILURE);
+			print_help(EXIT_FAILURE);
 		}
 	} else {
 		glyph->surrogate = false;
@@ -351,16 +347,26 @@ int write_bom(int fd) {
 	if ((fd != STDOUT_FILENO) && (rv = read(fd, &buf[0], 1)) == 1 &&
 		(rv = read(fd, &buf[1], 1) == 1)) {
 		if(buf[0] == 0xff && buf[1] == 0xfe) {
-			if (convEndian != LITTLE && convEncoding != UTF_16) {
+			if (convEndian == LITTLE && convEncoding == UTF_16) {
+				buf[0] = '\n';
+				buf[1] = '\0';
+				write(fd, buf, 2);
+			} else {
 				print_help(EXIT_FAILURE);
 			}
 		} else if (buf[0] == 0xfe && buf[1] == 0xff) {
-			if (convEndian != BIG || convEncoding != UTF_16) {
+			if (convEndian == BIG && convEncoding == UTF_16) {
+				buf[0] = '\0';
+				buf[1] = '\n';
+				write(fd, buf, 2);
+			} else {
 				print_help(EXIT_FAILURE);
 			}
 		} else if (buf[0] == 0xef && buf[1] == 0xbb &&
 		((rv = read(fd, &buf[0], 1)) == 1) && buf[0] == 0xbf) {
-			if (convEncoding != UTF_8) {
+			if (convEncoding == UTF_8) {
+				buf[0] = '\n';
+			} else {
 				print_help(EXIT_FAILURE);
 			}
 		} else {
