@@ -1,6 +1,8 @@
 #include "utfconverter.h"
 
-#define calc_time_diff ((float)afterUsage.ru_stime.tv_usec - (float)beforeUsage.ru_stime.tv_usec)
+#define calc_sys_diff (((float)afterUsage.ru_stime.tv_usec - (float)beforeUsage.ru_stime.tv_usec) / 100000)
+#define calc_user_diff (((float)afterUsage.ru_utime.tv_usec - (float)beforeUsage.ru_utime.tv_usec) / 100000)
+#define calc_real_diff (((float)timeAfter.tv_usec - (float)timeBefore.tv_usec) / 100000)
 
 char* srcFilename;
 char* convFilename;
@@ -22,18 +24,20 @@ int main(int argc, char** argv) { /**  */
 	 should be set. */
 	struct timeval timeBefore, timeAfter;
 	struct rusage beforeUsage, afterUsage;
+	int srcFD, convFD;
+	unsigned char* buf;
+	Glyph* glyph;
 
  	parse_args(argc, argv); 
-	int srcFD = open(srcFilename, O_RDONLY);
-	int convFD;
+	srcFD = open(srcFilename, O_RDONLY);
 	if (convFilename != NULL) {
 		convFD = open(convFilename, O_WRONLY);
 	} else {
 		convFD = STDOUT_FILENO;
 	}
-	unsigned int* buf = malloc(sizeof(int));
+	buf = malloc(sizeof(char));
 	*buf = 0;
-	Glyph* glyph = malloc(sizeof(Glyph));
+	glyph = malloc(sizeof(Glyph));
 
 	memset(readingTimes, 0, sizeof(readingTimes));
 	memset(convertingTimes, 0, sizeof(convertingTimes));
@@ -52,10 +56,10 @@ int main(int argc, char** argv) { /**  */
 	}
 
 	getrusage(RUSAGE_SELF, &afterUsage);
-	readingTimes[SYS] += calc_time_diff;
-	readingTimes[USER] += calc_time_diff;
+	readingTimes[SYS] += calc_sys_diff;
+	readingTimes[USER] += calc_user_diff;
 	gettimeofday(&timeAfter, NULL);
-	readingTimes[REAL] += calc_time_diff;
+	readingTimes[REAL] += calc_real_diff;
 
 	/** Write BOM to output */
 	getrusage(RUSAGE_SELF, &beforeUsage);
@@ -68,21 +72,10 @@ int main(int argc, char** argv) { /**  */
 	}
 
 	getrusage(RUSAGE_SELF, &afterUsage);
-	writingTimes[SYS] += calc_time_diff;
-	writingTimes[USER] += calc_time_diff;
+	writingTimes[SYS] += calc_sys_diff;
+	writingTimes[USER] += calc_user_diff;
 	gettimeofday(&timeAfter, NULL);
-	writingTimes[REAL] += calc_time_diff;
-	
-	void* memset_return = memset(glyph, 0, sizeof(Glyph));
-	/* Memory write failed, recover from it: */
-	if(memset_return == NULL) {
-		/* tweak write permission on heap memory. */
-		asm("movl $8, %esi\n\t"
-			"movl $.LC0, %edi\n\t"
-			"movl $0, %eax");
-		/* Now make the request again. */
-		memset(glyph, 0, sizeof(Glyph));
-	}
+	writingTimes[REAL] += calc_real_diff;
 
 	/* Read source file and create glyphs */
 	while (read(srcFD, buf, 1) == 1) {
@@ -99,10 +92,10 @@ int main(int argc, char** argv) { /**  */
  		}
 
 		getrusage(RUSAGE_SELF, &afterUsage);
-		readingTimes[SYS] += calc_time_diff;
-		readingTimes[USER] += calc_time_diff;;
+		readingTimes[SYS] += calc_sys_diff;
+		readingTimes[USER] += calc_user_diff;;
 		gettimeofday(&timeAfter, NULL);
-		readingTimes[REAL] += calc_time_diff;;
+		readingTimes[REAL] += calc_real_diff;;
 		
 		/** Convert */
 		getrusage(RUSAGE_SELF, &beforeUsage);
@@ -117,10 +110,10 @@ int main(int argc, char** argv) { /**  */
 		}
 
 		getrusage(RUSAGE_SELF, &afterUsage);
-		convertingTimes[SYS] += calc_time_diff;
-		convertingTimes[USER] += calc_time_diff;
+		convertingTimes[SYS] += calc_sys_diff;
+		convertingTimes[USER] += calc_user_diff;
 		gettimeofday(&timeAfter, NULL);
-		convertingTimes[REAL] += calc_time_diff;
+		convertingTimes[REAL] += calc_real_diff;
 
 		/** Write */
 		gettimeofday(&timeBefore, NULL);
@@ -128,10 +121,10 @@ int main(int argc, char** argv) { /**  */
 		write_glyph(glyph, convFD);
 
 		getrusage(RUSAGE_SELF, &afterUsage);
-		writingTimes[SYS] += calc_time_diff;
-		writingTimes[USER] += calc_time_diff;
+		writingTimes[SYS] += calc_sys_diff;
+		writingTimes[USER] += calc_user_diff;
 		gettimeofday(&timeAfter, NULL);
-		writingTimes[REAL] += calc_time_diff;
+		writingTimes[REAL] += calc_real_diff;
 		
 		/** Counts */
 		++glyphCount;
@@ -146,24 +139,8 @@ int main(int argc, char** argv) { /**  */
 		*buf = 0;
 	}
 
-
 	print_verbosity(srcFD);
 
-	/* Now deal with the rest of the bytes. 
-	while((rv = read(fd, &buf[0], 1)) == 1 &&  
-	(rv = read(fd, &buf[1], 1)) == 1) {
-		write_glyph(fill_glyph(glyph, buf, srcEndian, &fd));
-		void* memset_return = memset(glyph, 0, sizeof(Glyph)); 
-	     Memory write failed, recover from it: 
-	    if(memset_return == NULL) {
-		     tweak write permission on heap memory. 
-	       	asm("movl $8, %esi\n\t"
-		    "movl $.LC0, %edi\n\t"
-	        "movl $0, %eax");
-	         Now make the request again. 
-		        memset(glyph, 0, sizeof(Glyph));
-	    }
-	} */
 	free(buf);
 	free(glyph);
 	quit_converter(srcFD, convFD, EXIT_SUCCESS);
@@ -171,7 +148,7 @@ int main(int argc, char** argv) { /**  */
 }
 
 void convert_encoding(Glyph* glyph) {
-	unsigned int unicode = 0;
+	unsigned int unicode = 0, msb, lsb;
 	int i, mask;
 	/** Find unicode value of UTF 8 */
 	if (srcEncoding == UTF_8) {
@@ -210,8 +187,8 @@ void convert_encoding(Glyph* glyph) {
 		/** Surrogate pair */
 		if (unicode > 0x10000) {
 			unicode -= 0x10000;
-			unsigned int msb = (unicode >> 10) + 0xD800;
-			unsigned int lsb = (unicode & 0x3FF) + 0xDC00;
+			msb = (unicode >> 10) + 0xD800;
+			lsb = (unicode & 0x3FF) + 0xDC00;
 			unicode = (msb << 16) + lsb;
 			mask = 0xFF;
 			for (i = 0; i < 4; ++i) {
@@ -243,9 +220,9 @@ Glyph* swap_endianness(Glyph* glyph) {
 	return glyph;
 }
 
-Glyph* read_utf_8(int fd, Glyph *glyph, unsigned int *buf) {
-	glyph->bytes[0] = *buf;
+Glyph* read_utf_8(int fd, Glyph *glyph, unsigned char *buf) {
 	int i;
+	glyph->bytes[0] = *buf;
 	/** 1 Byte? */
 	if (*buf >> 7 == 0) {
 		glyph->nBytes = 1;
@@ -282,7 +259,8 @@ Glyph* read_utf_8(int fd, Glyph *glyph, unsigned int *buf) {
 	return glyph;
 }
 
-Glyph* read_utf_16(int fd, Glyph* glyph, unsigned int *buf) {
+Glyph* read_utf_16(int fd, Glyph* glyph, unsigned char *buf) {
+	unsigned int temp;
 	glyph->bytes[0] = *buf;
 	if (read(fd, buf, 1) != 1) {
 		fprintf(stderr, "Error reading file.");
@@ -296,7 +274,7 @@ Glyph* read_utf_16(int fd, Glyph* glyph, unsigned int *buf) {
 		glyph->bytes[1] = glyph->bytes[0];
 		glyph->bytes[0] = *buf;
 	}
-	unsigned int temp = (glyph->bytes[0] + (glyph->bytes[1] << 8));
+	temp = (glyph->bytes[0] + (glyph->bytes[1] << 8));
 	/** Check if this character is a surrogate pair */
 	if (temp >= 0xD800 && temp <= 0xDBFF) {
 		if (read(fd, &glyph->bytes[2], 1) == 1 && 
@@ -332,7 +310,7 @@ Glyph* read_utf_16(int fd, Glyph* glyph, unsigned int *buf) {
 }
 
 int read_bom(int* fd) {
-	unsigned int buf[2] = {0, 0}; 
+	unsigned char buf[2] = {0, 0}; 
 	int rv = 0;
 	if((rv = read(*fd, &buf[0], 1)) == 1 && 
 			(rv = read(*fd, &buf[1], 1)) == 1) { 
@@ -386,7 +364,7 @@ void write_glyph(Glyph* glyph, int fd) {
 		write(fd, glyph->bytes, glyph->nBytes);
 	} else {
 		if(glyph->surrogate) {
-			write(fd, glyph->bytes, SURROGATE_SIZE); // STDIN_FILENO
+			write(fd, glyph->bytes, SURROGATE_SIZE);
 		} else {
 			write(fd, glyph->bytes, NON_SURROGATE_SIZE);
 		}
@@ -394,17 +372,17 @@ void write_glyph(Glyph* glyph, int fd) {
 }
 
 int parse_args(int argc, char** argv) {
-	convEncoding = 2;
-	convEndian = 2;
+	int option_index;
+	char c;
 	static struct option long_options[] = {
 		{"help", optional_argument, 0, 'h'},
 		{"UTF=", required_argument, 0, 'u'},
 		{NULL, optional_argument, 0, 'v'},
 		{0, 0, 0, 0}
 	};
-		/** TODO - ADD TO ME */
-	int option_index;
-	char c = '\0';
+	c = '\0';
+	convEncoding = 2;
+	convEndian = 2;
 
 	while (optind < argc) {
 		while (c != -1 && (c = getopt_long(argc, argv, "hu:v", long_options, 
@@ -471,19 +449,24 @@ int parse_args(int argc, char** argv) {
 }
 
 void print_help(int exit_status) {
-	printf("%s", USAGE); 
+	printf("%s", USAGE_ONE);
+	printf("%s", USAGE_TWO); 
 	quit_converter(NO_FD, NO_FD, exit_status);
 }
 
 void print_verbosity(int fd) {
+	float fileSize;
+	char *srcPWD, hostMachine[201];
+	struct utsname osInfo;
 	if (verbosityLevel == LEVEL_0) {
 		return;
 	}
 	/** Level 1 + 2 */
-	float fileSize = (float)lseek(fd, 0, SEEK_END) / 1000.0;
+	fileSize = (float)lseek(fd, 0, SEEK_END) / 1000.0;
 	fprintf(stderr, "  Input file size: %f kb\n", fileSize);
 
-	char *srcPWD = realpath(srcFilename, NULL);
+	srcPWD = calloc(101, sizeof(char));
+	realpath(srcFilename, srcPWD);
 	fprintf(stderr, "  Input file path: %s\n", srcPWD);
 	free(srcPWD);
 
@@ -509,12 +492,10 @@ void print_verbosity(int fd) {
 		}
 	}
 
-	char hostMachine[201];
 	hostMachine[200] = '\0';
 	gethostname(hostMachine, 200);
 	fprintf(stderr, "  Hostmachine: %s\n", hostMachine);
 
-	struct utsname osInfo;
 	uname(&osInfo);
 	fprintf(stderr, "  Operating System: %s\n", osInfo.sysname);
 

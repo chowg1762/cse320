@@ -17,7 +17,7 @@
 #define SURROGATE_SIZE 4
 #define NON_SURROGATE_SIZE 2
 #define NO_FD -1
-#define OFFSET 2 // was 4
+#define OFFSET 2
 
 #define LEVEL_0 0
 #define LEVEL_1 1
@@ -50,14 +50,15 @@ typedef struct Glyph {
 extern char* filename;
 
 /** The usage statement. */
-const char* const USAGE = 
+const char* const USAGE_ONE = 
 "Command line uility for converting UTF files to and from UTF-8, UTF-16LE\n\
 and UTF-16BE.\n\n\
 Usage:\n\
   ./utf [-h|--help] -u OUT_ENC | --UTF=OUT_ENC IN_FILE [OUT_FILE]\n\n\
   Option arguments:\n\
-    -h, --help\t    Displays this usage.\n\
-    -v, -vv\t    Toggles the verbosity of the program to level 1 or 2.\n\n\
+    -h, --help\t    Displays this usage.\n";
+const char* const USAGE_TWO =
+    "    -v, -vv\t    Toggles the verbosity of the program to level 1 or 2.\n\n\
   Mandatory arguments:\n\
     -u OUT_ENC, --UTF=OUT_ENC\tSets the output encoding.\n\
 \t\t\t\tValid values for OUT_ENC: 8, 16LE, 16BE\n\n\
@@ -149,7 +150,7 @@ Glyph* convert P((Glyph* glyph, endianness end));
 * @param fd	The int pointer to the file descriptor of the input
 * @return Returns the number of bytes read
 */
-Glyph* read_utf_8 P((int fd, Glyph* glyph, unsigned int* buf));
+Glyph* read_utf_8 P((int fd, Glyph* glyph, unsigned char* buf));
 
 /**
 * Reads the sfdource file as UTF 16 and stores the passes the unicode to fill_glyph
@@ -157,7 +158,7 @@ Glyph* read_utf_8 P((int fd, Glyph* glyph, unsigned int* buf));
 * @param fd	The int pointer to the file descriptor of the input
 * @return Returns the number of bytes read
 */
-Glyph* read_utf_16 P((int fd, Glyph* glyph, unsigned int* buf));
+Glyph* read_utf_16 P((int fd, Glyph* glyph, unsigned char* buf));
 
 /**
  * Fills in a glyph with the given data in data[2], with the given endianness 
