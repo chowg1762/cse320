@@ -12,6 +12,7 @@
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <sys/utsname.h>
+#include <sys/stat.h>
 
 #define MAX_BYTES 4
 #define SURROGATE_SIZE 4
