@@ -290,10 +290,9 @@ Glyph* read_utf_16(int fd, Glyph* glyph, unsigned char *buf) {
 	unsigned int temp;
 	glyph->bytes[0] = *buf;
 	if (read(fd, buf, 1) != 1) {
-		fprintf(stderr, "Error reading file.");
 		free(buf);
 		free(glyph);
-		quit_converter(fd, NO_FD, EXIT_FAILURE);
+		print_help(EXIT_FAILURE);
 	}
 	if (srcEndian == LITTLE) {
 		glyph->bytes[1] = *buf;
@@ -356,7 +355,7 @@ int read_bom(int* fd) {
 		}
 		return 1;
 	} else {
-		fprintf(stderr, "Error reading BOM of source file.\n");
+		print_help(EXIT_FAILURE);
 	}
 	return 0;
 }
@@ -503,7 +502,6 @@ int parse_args(int argc, char** argv) {
 	}
 
 	if(convEncoding == 2) {
-		fprintf(stderr, "Converson mode not given.\n");
 		print_help(EXIT_FAILURE);
 	}
 	return 1;
