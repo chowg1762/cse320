@@ -31,22 +31,6 @@ int main(int argc, char** argv) { /**  */
 
  	parse_args(argc, argv); 
 
-	srcStats = malloc(sizeof(struct stat));
-	convStats = malloc(sizeof(struct stat));
-	if (srcFilename != NULL) {
-		if (stat(srcFilename, srcStats) == 0) {
-			if (convFilename != NULL) {
-				if (stat(convFilename, convStats) == 0) {
-					if (srcStats->st_ino == convStats->st_ino) {
-						print_help(EXIT_FAILURE);
-					}
-				}
-			}
-		}
-	}
-	free(srcStats);
-	free(convStats);
-
 	srcFD = open(srcFilename, O_RDONLY);
 	if (srcFD == -1) {
 		print_help(EXIT_FAILURE);
@@ -63,6 +47,23 @@ int main(int argc, char** argv) { /**  */
 			print_help(EXIT_FAILURE);
 		}
 	}
+	
+	srcStats = malloc(sizeof(struct stat));
+	convStats = malloc(sizeof(struct stat));
+	if (srcFilename != NULL) {
+		if (stat(srcFilename, srcStats) == 0) {
+			if (convFilename != NULL) {
+				if (stat(convFilename, convStats) == 0) {
+					if (srcStats->st_ino == convStats->st_ino) {
+						print_help(EXIT_FAILURE);
+					}
+				}
+			}
+		}
+	}
+	free(srcStats);
+	free(convStats);
+
 	buf = malloc(sizeof(char));
 	*buf = 0;
 	glyph = malloc(sizeof(Glyph));
