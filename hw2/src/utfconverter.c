@@ -47,7 +47,7 @@ int main(int argc, char** argv) { /**  */
 			print_help(EXIT_FAILURE);
 		}
 	}
-	
+
 	srcStats = malloc(sizeof(struct stat));
 	convStats = malloc(sizeof(struct stat));
 	if (srcFilename != NULL) {
