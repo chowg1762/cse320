@@ -7,6 +7,12 @@
 #define MAX_DATA_SIZE 16
 #define PAGE_SIZE 4096
 
+#define HDRP(ptr) ((sf_free_header*)ptr)
+#define FTRP(ptr) ((sf_footer*)ptr)
+#define NEXT_BLKP(ptr) (ptr + ((sf_free_header*)ptr)->block_size)
+#define PREV_BLKP(ptr) (ptr - (((sf_footer*)(ptr - 8))->block_size) + 8)
+#define RMV_NODE(header) (header->prev->next = header->next, (header->next->prev = header->prev))
+
 void* start_of_heap;
 void* end_of_heap;
 
@@ -26,7 +32,15 @@ struct __attribute__((__packed__)) sf_header {
     uint64_t padding_size : PADDING_SIZE_BITS;
 }; */
 
-void coalesce(void *ptr) {
+void *coalesce(void *ptr) {
+
+}
+
+void *find_fit(size_t size) {
+   
+}
+
+void place(void *ptr, size_t size) {
 
 }
 
@@ -37,8 +51,10 @@ void *sf_malloc(size_t size){
   }
 
   // Search free list for suitable block
-  size_t padding = size % MAX_DATA_SIZE; // Handle shards
-  size += MAX_DATA_SIZE; // For header and footer
+  size_t padding = size % MAX_DATA_SIZE; // Handle quad word allignment
+  size += padding + MAX_DATA_SIZE; // Add size of padding, header, and footer
+  sf_free_header* cursor = freelist_head, *new_free_header;
+  sf_footer* footer, *new_free_footer;
   sf_free_header* cursor = freelist_head, *new_free_header;
   sf_footer* footer, *new_free_footer;
   while (cursor != NULL) {
@@ -72,14 +88,14 @@ void *sf_malloc(size_t size){
     } else {
       cursor = cursor->next;
     }
-  }  
+  } 
 
   // Expand the heap since there isn't a suitable block
-  if (sf_sbrk(0) == (void*)-1) {
+  if (sf_sbrk(1) == (void*)-1) {
     errno = ENOMEM;
     return NULL;
   }
-  void* brk_pos = sf_sbrk(1);
+  void* brk_pos = sf_sbrk(0);
   
   footer = brk_pos - DOUBLE_WORD;
   if (footer->alloc == 0) {
@@ -114,7 +130,63 @@ void *sf_malloc(size_t size){
 }
 
 void sf_free(void *ptr){
+  // Check if neighboring blocks are free
+  void *cursor;
+  size_t size, prev_alloc = 0, next_alloc = 0;
+  sf_free_header *header;
+  sf_footer *footer;
+  size = HDRP(ptr)->header.block_size;
 
+  if (ptr > start_of_heap) {
+    prev_alloc = HDRP(PREV_BLKP(ptr))->header.alloc;
+  }
+  if (size + ptr < end_of_heap) {
+    next_alloc = HDRP(NEXT_BLKP(ptr))->header.alloc;
+  }
+
+  header = HDRP(ptr);
+  // [A][T][A] - Add to freelist as head
+  if (prev_alloc && next_alloc) {
+    header->header.alloc = 0;
+  }
+  
+  // [A][T][F]
+  else if (prev_alloc && !next_alloc) {
+    sf_free_header *next_header = HDRP(NEXT_BLKP(ptr));
+    footer = FTRP((void*)next_header);
+    header->header.alloc = 0;
+    header->header.block_size += next_header->header.block_size;
+    footer = header->header.block_size;
+    RMV_NODE(next_header);
+  } 
+
+  // [F][T][A]
+  else if (!prev_alloc && next_alloc) {
+    header = HDRP(PREV_BLKP(ptr));
+    footer = FTRP(ptr);
+    header->header.block_size += size;
+    footer->alloc = 0;
+    footer->block_size = header->header.block_size;
+    RMV_NODE(header);
+  }
+
+  // [F][T][F]
+  else {
+    sf_free_header *next_header = HDRP(NEXT_BLKP(ptr));
+    header = HDRP(PREV_BLKP(ptr));
+    footer = FTRP(NEXT_BLKP(ptr));
+    header->header.block_size += footer->block_size + size;
+    footer->block_size = header->header.block_size;
+    RMV_NODE(header);
+    RMV_NODE(next_header);
+  }
+
+  // Add to freelist as head
+  if (freelist_head != NULL)
+    freelist_head->prev = header;
+  header->next = freelist_head;
+  header->prev = NULL;
+  freelist_head = header;
 }
 
 void *sf_realloc(void *ptr, size_t size){
