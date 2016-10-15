@@ -1,0 +1,18 @@
+Test(sf_memsuite, Coalesce_no_coalescing, .init = sf_mem_init, .fini = sf_mem_fini) {
+    void *x = sf_malloc(4);
+    void *y = sf_malloc(4);
+    memset(y, 0xFF, 4);
+    sf_free(x);
+    cr_assert(freelist_head == x-8);
+    sf_free_header *headofx = (sf_free_header*) (x-8);
+    sf_footer *footofx = (sf_footer*) (x - 8 + (headofx->header.block_size << 4)) - 8;
+
+    sf_blockprint((sf_free_header*)((void*)x-8));
+    // All of the below should be true if there was no coalescing
+    cr_assert(headofx->header.alloc == 0);
+    cr_assert(headofx->header.block_size << 4 == 32);
+    cr_assert(headofx->header.padding_size == 0);
+
+    cr_assert(footofx->alloc == 0);
+    cr_assert(footofx->block_size << 4 == 32);
+}
