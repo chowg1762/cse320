@@ -55,7 +55,8 @@ void remove_node(void *ptr) {
   } 
   // Node is the freelist_head and has no next - remove it
   else {
-    freelist_head = NULL;
+    if (freelist_head == node)
+      freelist_head = NULL;
   }
 }
 
@@ -81,6 +82,7 @@ void *coalesce(void *ptr) {
   if (prev_alloc && next_alloc) {
     footer = FTRP(ptr);
     footer->alloc = 0;
+    --coalesces;
   }
   
   // [A][T][F]
@@ -90,33 +92,27 @@ void *coalesce(void *ptr) {
     header->header.block_size += next_header->header.block_size;
     footer->block_size = header->header.block_size;
     remove_node(next_header);
-    internal -= SF_HEADER_SIZE + SF_FOOTER_SIZE; 
-    external -= next_header->header.block_size;
   } 
 
   // [F][T][A]
   else if (!prev_alloc && next_alloc) {
     header = HDRP(PREV_BLKP(ptr));
-    external -= header->header.block_size;
     footer = FTRP(ptr);
     header->header.block_size += (size >> 4);
     footer->alloc = 0;
     footer->block_size = header->header.block_size;
     remove_node(header);
-    internal -= SF_HEADER_SIZE + SF_FOOTER_SIZE;
   }
 
   // [F][T][F]
   else {
     sf_free_header *next_header = HDRP(NEXT_BLKP(ptr));
     header = HDRP(PREV_BLKP(ptr));
-    external -= header->header.block_size + next_header->header.block_size;
     footer = FTRP(NEXT_BLKP(ptr));
     header->header.block_size += footer->block_size + (size >> 4);
     footer->block_size = header->header.block_size;
     remove_node(header);
     remove_node(next_header);
-    internal -= 2 * SF_HEADER_SIZE + 2 * SF_FOOTER_SIZE;
   }
 
   // Add to freelist as head
@@ -136,7 +132,10 @@ void split_block(void* ptr, size_t new_size, size_t padding) {
   if (((sf_header*)ptr)->alloc == 0) {
     remove_node(ptr);
     external -= full_size;
+  } else {
+    internal -= header->header.padding_size;
   }
+  internal += padding + SF_FOOTER_SIZE + SF_HEADER_SIZE;
 
   // Split block
   if (size_difference >= 16) {
@@ -146,9 +145,7 @@ void split_block(void* ptr, size_t new_size, size_t padding) {
     header->header.padding_size = padding;
     footer = ptr + new_size - SF_FOOTER_SIZE;
     footer->alloc = 1;
-    footer->block_size = new_size >> 4;
-
-    internal += padding;
+    footer->block_size = header->header.block_size;
   }
 
   // Make free block
@@ -160,31 +157,28 @@ void split_block(void* ptr, size_t new_size, size_t padding) {
     footer = ptr + full_size - SF_FOOTER_SIZE;
     footer->alloc = 0;
     footer->block_size = header->header.block_size;
-
-    internal += SF_HEADER_SIZE + SF_FOOTER_SIZE;
-
     coalesce(header);
   } 
   // Splinter
   else {
     // Merge splinter with neighboring free-block
     if (size_difference == 16 && (ptr + full_size) < end_of_heap && 
-    HDRP(NEXT_BLKP(ptr))->header.alloc == 0) {
+    HDRP(ptr + full_size)->header.alloc == 0) {
       header = ptr + new_size;
       header->header.alloc = 0;
       header->header.block_size = (SF_HEADER_SIZE + SF_FOOTER_SIZE + 
-      (HDRP(NEXT_BLKP(ptr))->header.block_size)) << 4;
+      (HDRP(ptr + full_size)->header.block_size << 4)) >> 4;
       footer = ((void*)header) + (header->header.block_size << 4) - SF_FOOTER_SIZE;
       footer->block_size = header->header.block_size;
-      remove_node(NEXT_BLKP(ptr));
-
+      remove_node(ptr + full_size);
+      insert_node(header);
       external += size_difference;
     } 
     // Over-allocate
     else {
       header->header.alloc = 1;
       header->header.block_size = full_size >> 4;
-      footer = ptr + full_size;
+      footer = ptr + full_size - SF_FOOTER_SIZE;
       footer->alloc = 1;
       footer->block_size = header->header.block_size;
     }
@@ -219,6 +213,7 @@ void *sf_malloc(size_t size) {
   
   // Search freelist for a suitable block
   if ((ptr = find_fit(size, padding)) != NULL) {
+    ++allocations;
     return ptr + SF_HEADER_SIZE; // Payload
   } 
 
@@ -233,27 +228,35 @@ void *sf_malloc(size_t size) {
   sf_footer *footer;
 
   footer = ptr - SF_FOOTER_SIZE;
-  if (ptr > start_of_heap && ptr < end_of_heap &&  footer->alloc == 0) {
+  if (ptr > start_of_heap && ptr <= end_of_heap &&  footer->alloc == 0) {
     header = ((void*)footer) - (footer->block_size << 4) + SF_HEADER_SIZE;
   } else {
     header = (sf_free_header*)ptr;
   }
-
+  
   // Expand the heap since there isn't a suitable block
   while (end_of_heap - (void*)header < size) { 
-    if (sf_sbrk(1) == (void*)-1) {
-     errno = ENOMEM;
-     return NULL;
-    }
     end_of_heap = sf_sbrk(0);
+    if (sf_sbrk(1) == (void*)-1) {
+      // Make new heap space a free block
+      if (footer->alloc == 0) {
+        remove_node(header);
+      }
+      header->header.alloc = 0;
+      header->header.block_size = (end_of_heap - (void*)header) >> 4;
+      footer = (void*)header + (header->header.block_size << 4) - SF_FOOTER_SIZE;
+      footer->alloc = 0;
+      footer->block_size = header->header.block_size;
+      insert_node(header);
+
+      errno = ENOMEM;
+      return NULL;
+    }
   } 
   
   // Set Header
   header->header.alloc = 1;
-  header->header.block_size = (end_of_heap - ptr) >> 4;
-  header->header.padding_size = padding;
-
-  internal += SF_HEADER_SIZE + SF_FOOTER_SIZE;
+  header->header.block_size = (end_of_heap - ((void*)header)) >> 4;
 
   split_block(header, size, padding);
 
@@ -269,17 +272,18 @@ void sf_free(void *ptr) {
     return;
   
   if (ptr < start_of_heap || ptr > end_of_heap) {
-    //errno = E 
+    errno = EINVAL; 
     return;
   }
 
-  if (!((sf_header*)(ptr - SF_HEADER_SIZE))->alloc)
+  ptr -= SF_HEADER_SIZE;
+  if (!((sf_header*)ptr)->alloc)
     return;
 
   ++frees;
-  internal -= HDRP(ptr)->header.padding_size;  
+  internal -= HDRP(ptr)->header.padding_size + SF_HEADER_SIZE + SF_FOOTER_SIZE;  
 
-  coalesce(ptr - SF_HEADER_SIZE);
+  coalesce(ptr);
 }
 
 void *sf_realloc(void *ptr, size_t size) {
@@ -304,21 +308,20 @@ void *sf_realloc(void *ptr, size_t size) {
 
   // Expand
   if (size > old_size) {
-    // Followed by a free block? 
-    if (HDRP(NEXT_BLKP(ptr))->header.alloc) {
-      // Yes: is the combined size enough?
-      if (size <= old_size + (HDRP(NEXT_BLKP(ptr))->header.block_size << 4)) {
-        // Split block and coalesce or merge
-        header->header.block_size = (HDRP(NEXT_BLKP(ptr))->header.block_size << 4);
-        footer = ptr + header->header.block_size;
-        footer->alloc = 1;
-        footer->block_size = header->header.block_size;
-        split_block(ptr, size, padding);
-      } 
+    // Followed by a large enough free block
+    if (HDRP(NEXT_BLKP(ptr))->header.alloc == 0 &&
+    size <= old_size + (HDRP(NEXT_BLKP(ptr))->header.block_size << 4)) {
+      // Split block and coalesce or merge
+      header->header.block_size = (old_size >> 4) + 
+        HDRP(NEXT_BLKP(ptr))->header.block_size;
+      footer = ptr + header->header.block_size;
+      footer->alloc = 1;
+      footer->block_size = header->header.block_size;
+      split_block(ptr, size, padding);
     } 
     // No: find another free block from malloc, memcopy, free
     else {
-      void *new_ptr = sf_malloc(size);
+      void *new_ptr = sf_malloc(size - padding - SF_HEADER_SIZE - SF_FOOTER_SIZE);
       memmove(new_ptr, (ptr + SF_HEADER_SIZE), (old_size - SF_HEADER_SIZE));
       sf_free(ptr + SF_HEADER_SIZE);
       return new_ptr;
@@ -328,6 +331,12 @@ void *sf_realloc(void *ptr, size_t size) {
   else if (size < old_size) {
     split_block(ptr, size, padding);
   } 
+  // Same size
+  else {
+    internal -= header->header.padding_size;
+    internal += padding;
+    header->header.padding_size = padding;
+  }
   return ptr + SF_HEADER_SIZE;
 }
 

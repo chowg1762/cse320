@@ -90,35 +90,22 @@ int main(int argc, char *argv[]) {
     info("Initialized heap with %dmb of heap space.\n", MAX_HEAP_SIZE >> 20);
   //  press_to_cont();
 
+    void *x = sf_malloc(8176); // 2 pages
+    void *y = sf_malloc(32); // on to 3rd page
+    memset(x, 2, 8176);
+    memset(y, 3, 32);
 
-    void *w = sf_malloc(32);
-    void *x = sf_malloc(64);    
-    void *y = sf_malloc(96);
-    void *z = sf_malloc(128);
-    void *hi = sf_malloc(256);
-    void *bye = sf_malloc(512); //2912 bytes left
-    void* s = sf_malloc(2896);
-    //void* w_ftr = w-16+(((sf_header*)w)->block_size<<4);
-    memset(w, 1, 32);
-    memset(x, 2, 64);
-    memset(y, 3, 96);
-    memset(z, 4, 128);
-    memset(hi, 5, 256);
-    memset(bye, 6, 512);
-    memset(s, 7, 2896);
-    //cr_assert(freelist_head==NULL);
-    void* w2 = sf_realloc(w,12);
-    //void* n_ftr = w-16+(((sf_header*)w)->block_size<<4);
-    sf_varprint(w);
-    sf_varprint(w2);
-    //cr_assert(w==w2, "Realloc Splinter Header Issues");
-    //cr_assert(w_ftr==n_ftr, "Realloc Splinter Footer Issues");
-    //cr_assert((((sf_header*)(w2-8))->block_size << 4)==48);
-    sf_free(bye); //112
-    sf_free(z); //112+80 = 192
-    sf_free(hi);
-    //cr_assert(freelist_head==(z-8));
-    //cr_assert(freelist_head->header.padding_size == 0);
+    //sf_varprint(x);
+    //sf_header *x_header = x - 8, *y_header = y - 8;
+    //sf_footer *x_footer = (void*)x_header + (x_header->block_size << 4) - 8;
+    //cr_assert(x_header->alloc == 1);
+    //cr_assert(x_header->block_size << 4 == 8192);
+    //cr_assert(x_header->block_size == x_footer->block_size);
+    //cr_assert(((void*)x_header) + (x_header->block_size << 4) == y_header);
+
+    free(x);
+    //cr_assert(freelist_head == (sf_free_header*)x_header);
+
 
     // Print out title for first test
     printf("=== Test1: Allocation test ===\n");
