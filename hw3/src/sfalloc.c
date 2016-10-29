@@ -90,22 +90,18 @@ int main(int argc, char *argv[]) {
     info("Initialized heap with %dmb of heap space.\n", MAX_HEAP_SIZE >> 20);
   //  press_to_cont();
 
-    void *x = sf_malloc(8176); // 2 pages
-    void *y = sf_malloc(32); // on to 3rd page
-    memset(x, 2, 8176);
-    memset(y, 3, 32);
+    void *x = sf_malloc(20000);
+    sf_varprint(x);
+    void *y = sf_malloc(1);
+    sf_varprint(y);
+    void *z = sf_malloc(12);
 
-    //sf_varprint(x);
-    //sf_header *x_header = x - 8, *y_header = y - 8;
-    //sf_footer *x_footer = (void*)x_header + (x_header->block_size << 4) - 8;
-    //cr_assert(x_header->alloc == 1);
-    //cr_assert(x_header->block_size << 4 == 8192);
-    //cr_assert(x_header->block_size == x_footer->block_size);
-    //cr_assert(((void*)x_header) + (x_header->block_size << 4) == y_header);
-
-    free(x);
-    //cr_assert(freelist_head == (sf_free_header*)x_header);
-
+    sf_free(x);
+    sf_blockprint(freelist_head);
+    sf_free(z);
+    sf_blockprint(freelist_head);
+    sf_free(y);
+    sf_blockprint(freelist_head);
 
     // Print out title for first test
     printf("=== Test1: Allocation test ===\n");

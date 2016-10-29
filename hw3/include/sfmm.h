@@ -12,6 +12,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 #define ALLOC_SIZE_BITS 4
 #define BLOCK_SIZE_BITS 28
