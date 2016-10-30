@@ -1,13 +1,17 @@
 #ifndef SFISH_H
 #define SFISH_H
 
+#include <errno.h>
+#include <readline/readline.h>
+#include <readline/history.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <readline/readline.h>
-#include <readline/history.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 enum colors {BLACK = 0, B_BLACK, RED, B_RED, GREEN, B_GREEN, 
