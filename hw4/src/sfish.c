@@ -233,31 +233,6 @@ void* get_builtin(char *cmd) {
     return NULL;
 }
 
-int get_exec(char *exec, char *path_buf) {
-    struct stat stats;
-    // Direct location
-    if (strstr(exec, "/") != NULL) {
-        var_cat(path_buf, 3, pwd, "/", exec);
-        if (stat(path_buf, &stats) != -1) {
-            return 1;
-        } else {
-            return 0;
-        }
-    }
-
-    // Unspecified location
-    char path_list[PWD_SIZE], *path_ptr = path_list, *cur_dir;
-    strcpy(path_list, getenv("PATH"));
-    while ((cur_dir = strsep(&path_ptr, ":")) != NULL) {
-        var_cat(path_buf, 3, cur_dir, "/", exec);  
-        if (stat(path_buf, &stats) != -1) {
-            return 1;
-        }
-        memset(path_buf, 0, PWD_SIZE);
-    }
-    return 0;
-}
-
 void make_prompt(char* prompt) {
     // Fix sfish prompt
     memset(prompt, 0, PROMPT_SIZE);
@@ -356,39 +331,35 @@ void eval_cmd(char *cmd) {
         return;
     }
 
-    // Job - TODO
-
-
     // Builtin
     int (*func)(int, char**);
-    char path[PWD_SIZE];
     if ((func = get_builtin(argv[0])) != NULL) {
         (*func)(argc, argv); // Fork for output redir
     }
 
-    // Exec
-    else if (get_exec(argv[0], path)) {
+    // Executable
+    else {
+        // Job - TODO
+        
         // Child
         if ((pid = fork()) == 0) {
-            execv(path, argv);
-            //execv("/bin/ls", argv);
-            printf("errno: %d\n", errno);
+            if (execvp(argv[0], argv)) {
+                // Invalid
+                s_print(STDERR_FILENO, "%s: command not found\n", 1, argv[0]);
+                exit(EXIT_SUCCESS);
+            }        
         } 
         // Parent - foreground
         else if (fg) {
             int status;
-            if (waitpid(pid, &status, 0) < 0)
+            if (waitpid(pid, &status, 0) < 0) {
                 s_print(STDERR_FILENO, "waitpid error\n", 0);
+            }
         } 
         // Parent - background
         else {
             s_print(STDOUT_FILENO, "%d: %s\n", 2, pid, cmd);
         }
-    } 
-
-    // Invalid
-    else {
-        s_print(STDERR_FILENO, "%s: command not found\n", 1, argv[0]);
     }
 
     free_args(argc, argv);

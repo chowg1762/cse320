@@ -37,11 +37,16 @@ char *open_tags[16] = {
     "\e[1;37m"
 };
 
-typedef struct rdir_pair {
-    
-    int srcfd;
-    int desfd;
-} rdir_pair;
+typedef struct args {
+    int argc;
+    char **argv;
+} args;
+
+typedef struct job {
+    int pid;
+    char *cmd;
+    char *status;
+} job;
 
 char *exec_status[2] = {"Running", "Stopped"};
 
