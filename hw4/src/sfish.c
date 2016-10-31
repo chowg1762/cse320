@@ -48,6 +48,7 @@ void s_print(int fd, const char *format, int nvar, ...) {
             strncat(str, (format + i - j), j);
             // Concat var
             strcat(str, va_arg(vars, const char*));
+            ++i;
             j = 0;
         } else {
             ++j;
@@ -87,33 +88,38 @@ void sf_exit(int argc, char **argv) {
 }
 
 int sf_cd(int argc, char **argv) {
+    char *path = argv[1];
+
     // Save old pwd
-    char prev_pwd[256];
+    char prev_pwd[PWD_SIZE];
     strcpy(prev_pwd, pwd);
 
-    // Get destination
-    char *path = argv[1];
-    if (strncmp(path, "~", 1) == 0) {
-        chdir(getenv("HOME"));
-        // If path is only ~
-        if (strcmp(path, "~") == 0) {
-            return 0;
+    // Make new changable path
+    char new_path[PWD_SIZE], *new_path_ptr = new_path;
+    memset(new_path, 0, PWD_SIZE);
+    strcpy(new_path_ptr, path);
+
+    if (argc == 1 || strncmp(path, "~", 1) == 0) {
+        strcpy(new_path_ptr ,getenv("HOME"));
+        if (strcmp(path, "~") != 0) {
+            size_t homelen = strlen(new_path_ptr);
+            strncpy(new_path_ptr + homelen, path, strlen(path) - 2);
         }
-        path += 2;
     } else if (strcmp(path, "-") == 0) {
-        if (strlen(last_dir) != 0)
-            chdir(last_dir);
-        return 0;
+        if (strlen(last_dir) != 0) {
+            new_path_ptr = last_dir;
+        } else {
+            new_path_ptr = pwd;
+        }
     }
-    
-    if (chdir(path) == -1) {
-        s_print(STDERR_FILENO, "sfish: cd: %s: No such directory\n", 1, path);
+
+    if (chdir(new_path) == -1) {
+        s_print(STDERR_FILENO, "sfish: cd: %s: No such directory\n", 1, argv[1]);
         return 1;
-    } else {
-        // Update pwd string
-        update_pwd();
-        strcpy(last_dir, prev_pwd);
     }
+    update_pwd();
+    strcpy(last_dir, prev_pwd);
+
     return 0;
 }
 
@@ -226,17 +232,15 @@ void* get_builtin(char *cmd) {
     return NULL;
 }
 
-char *get_exec(char *exec) {
-    char *path_buf = calloc(PWD_SIZE, sizeof(char));
+int get_exec(char *exec, char *path_buf) {
     struct stat stats;
     // Direct location
     if (strstr(exec, "/") != NULL) {
         var_cat(path_buf, 3, pwd, "/", exec);
         if (stat(path_buf, &stats) == -1) {
-            return path_buf;
+            return 1;
         } else {
-            free(path_buf);
-            return NULL;
+            return 0;
         }
     }
 
@@ -246,12 +250,11 @@ char *get_exec(char *exec) {
     while ((cur_dir = strsep(&path_ptr, ":")) != NULL) {
         var_cat(path_buf, 3, cur_dir, "/", exec);  
         if (stat(path_buf, &stats) != -1) {
-            return path_buf;
+            return 1;
         }
         memset(path_buf, 0, PWD_SIZE);
     }
-    free(path_buf);
-    return NULL;
+    return 0;
 }
 
 void make_prompt(char* prompt) {
@@ -291,10 +294,18 @@ int make_args(char *cmd, int *argc, char **argv) {
     *argc = 0;
     char *arg;
     while ((arg = strsep(&cmd, " ")) != NULL) {
-        argv[*argc] = malloc(strlen(arg) + 1);
-        strcpy(argv[*argc], arg);
-        ++(*argc);
+        if (strlen(arg) != 0) {
+            argv[*argc] = calloc(strlen(arg) + 1, sizeof(char));
+            strcpy(argv[*argc], arg);
+            ++(*argc);
+        }
     }
+    // Set rest of argv NULL
+    int i;
+    for (i = *argc; i < MAX_ARGS; ++i) {
+        argv[i] = NULL;
+    }
+    // Check for background flag
     if (strcmp(argv[*argc - 1], "&") == 0) {
         return 0;
     }
@@ -344,26 +355,30 @@ void eval_cmd(char *cmd) {
 
     // Builtin
     int (*func)(int, char**);
+    char path[PWD_SIZE];
     if ((func = get_builtin(argv[0])) != NULL) {
         (*func)(argc, argv); // Fork for output redir
     }
 
     // Exec
-    else if ((cmd = get_exec(argv[0])) != NULL) {
+    else if (get_exec(argv[0], path)) {
         // Child
         if ((pid = fork()) == 0) {
-            execve(cmd, argv, NULL);
+            execv(path, argv);
+            //execv("/bin/ls", argv);
+            printf("errno: %d\n", errno);
         } 
         // Parent - foreground
         else if (fg) {
             int status;
-            if (waitpid(pid, &status, 0) != 0)
+            if (waitpid(pid, &status, 0) < 0)
                 s_print(STDERR_FILENO, "waitpid error\n", 0);
         } 
         // Parent - background
         else {
             s_print(STDOUT_FILENO, "%d: %s\n", 2, pid, cmd);
         }
+        free(cmd);
     } 
 
     // Invalid
@@ -371,7 +386,6 @@ void eval_cmd(char *cmd) {
         s_print(STDERR_FILENO, "%s: command not found\n", 1, argv[0]);
     }
 
-    // Return resources
     free_args(argc, argv);
 }
 
@@ -388,16 +402,27 @@ int main(int argc, char** argv) {
     // Set sig handlers
     // set_handlers();
 
-    //char *cmd;
-    //while((cmd = readline(prompt)) != NULL) {
-        char test_cmd[] = "ls";
-        eval_cmd(test_cmd);
-        //eval_cmd(cmd);
+    // char *test = calloc(7, 1);
+    // test[0] = 'c';
+    // test[1] = 'd';
+    // test[2] = ' ';
+    // test[3] = '~';
+    // test[4] = '/';
+    // test[5] = 'p';
+    // test[6] = '\0';
+    // eval_cmd(test);
+
+    char *cmd;
+    while((cmd = readline(prompt)) != NULL) {
+        eval_cmd(cmd);
         make_prompt(prompt);
-   // }
+        free(cmd);
+    }
 
     //Don't forget to free allocated memory, and close file descriptors.
-   // free(cmd);
+    free(pwd);
+    free(machine);
+    free(prompt);
     //WE WILL CHECK VALGRIND!
 
     return EXIT_SUCCESS;

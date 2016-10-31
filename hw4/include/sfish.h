@@ -36,4 +36,6 @@ char *open_tags[16] = {
     "\e[1;37m"
 };
 
+char *exec_status[2] = {"Running", "Stopped"};
+
 #endif
