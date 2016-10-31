@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <readline/readline.h>
 #include <readline/history.h>
+// #include <signals.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -35,6 +36,12 @@ char *open_tags[16] = {
     "\e[0;37m", // White
     "\e[1;37m"
 };
+
+typedef struct rdir_pair {
+    
+    int srcfd;
+    int desfd;
+} rdir_pair;
 
 char *exec_status[2] = {"Running", "Stopped"};
 

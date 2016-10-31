@@ -16,8 +16,8 @@ char *user_color = "\e[0;37m"; // Default white non-bold
 char *machine;
 char *machine_color = "\e[0;37m"; // Default white non-bold
 char *pwd;
-bool user_tag = true;
-bool mach_tag = true;
+bool user_tag = false;
+bool mach_tag = false;
 
 char *var_cat(char *buf, int nvar, ...) {
     va_list vars;
@@ -97,13 +97,12 @@ int sf_cd(int argc, char **argv) {
     // Make new changable path
     char new_path[PWD_SIZE], *new_path_ptr = new_path;
     memset(new_path, 0, PWD_SIZE);
-    strcpy(new_path_ptr, path);
 
     if (argc == 1 || strncmp(path, "~", 1) == 0) {
         strcpy(new_path_ptr ,getenv("HOME"));
         if (strcmp(path, "~") != 0) {
             size_t homelen = strlen(new_path_ptr);
-            strncpy(new_path_ptr + homelen, path, strlen(path) - 2);
+            strncpy(new_path_ptr + homelen, path + 1, strlen(path) - 1);
         }
     } else if (strcmp(path, "-") == 0) {
         if (strlen(last_dir) != 0) {
@@ -111,6 +110,8 @@ int sf_cd(int argc, char **argv) {
         } else {
             new_path_ptr = pwd;
         }
+    } else {
+        strcpy(new_path_ptr, path);
     }
 
     if (chdir(new_path) == -1) {
@@ -237,7 +238,7 @@ int get_exec(char *exec, char *path_buf) {
     // Direct location
     if (strstr(exec, "/") != NULL) {
         var_cat(path_buf, 3, pwd, "/", exec);
-        if (stat(path_buf, &stats) == -1) {
+        if (stat(path_buf, &stats) != -1) {
             return 1;
         } else {
             return 0;
@@ -293,6 +294,7 @@ void make_prompt(char* prompt) {
 int make_args(char *cmd, int *argc, char **argv) {
     *argc = 0;
     char *arg;
+    
     while ((arg = strsep(&cmd, " ")) != NULL) {
         if (strlen(arg) != 0) {
             argv[*argc] = calloc(strlen(arg) + 1, sizeof(char));
@@ -300,13 +302,15 @@ int make_args(char *cmd, int *argc, char **argv) {
             ++(*argc);
         }
     }
+    
     // Set rest of argv NULL
     int i;
     for (i = *argc; i < MAX_ARGS; ++i) {
         argv[i] = NULL;
     }
+    
     // Check for background flag
-    if (strcmp(argv[*argc - 1], "&") == 0) {
+    if (*argc != 0 && strcmp(argv[*argc - 1], "&") == 0) {
         return 0;
     }
     return 1;
@@ -322,6 +326,7 @@ void free_args(int argc, char **argv) {
 void sigint_handler(int sig) {
     int prev_errno = errno;
     //pid_t pid;
+
     // Interrupt FG process
     errno = prev_errno;
 }
@@ -345,13 +350,14 @@ void eval_cmd(char *cmd) {
 
     // Parse cmd and alloc for argv
     fg = make_args(cmd, &argc, argv);  
-
+    
     // No command
     if (argc == 0) {
         return;
     }
 
     // Job - TODO
+
 
     // Builtin
     int (*func)(int, char**);
@@ -378,7 +384,6 @@ void eval_cmd(char *cmd) {
         else {
             s_print(STDOUT_FILENO, "%d: %s\n", 2, pid, cmd);
         }
-        free(cmd);
     } 
 
     // Invalid
@@ -402,15 +407,21 @@ int main(int argc, char** argv) {
     // Set sig handlers
     // set_handlers();
 
-    // char *test = calloc(7, 1);
-    // test[0] = 'c';
-    // test[1] = 'd';
-    // test[2] = ' ';
-    // test[3] = '~';
-    // test[4] = '/';
-    // test[5] = 'p';
-    // test[6] = '\0';
+    // char *test2 = calloc(20, 1);
+    // strcpy(test2, "");
+    // eval_cmd(test2);
+
+    // char *test = calloc(20, 1);
+    // strcpy(test, "cd ..");
     // eval_cmd(test);
+
+    // char *test3 = calloc(20, 1);
+    // strcpy(test3, "ls");
+    // eval_cmd(test3);
+
+    // char *test4 = calloc(20, 1);
+    // strcpy(test4, "cd ..");
+    // eval_cmd(test4);
 
     char *cmd;
     while((cmd = readline(prompt)) != NULL) {
