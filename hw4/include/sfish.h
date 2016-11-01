@@ -15,6 +15,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#define MAX_ARGS 15
+
 enum colors {BLACK = 0, B_BLACK, RED, B_RED, GREEN, B_GREEN, 
 YELLOW, B_YELLOW, BLUE, B_BLUE, MAGENTA, B_MAGENTA, CYAN, B_CYAN, WHITE, B_WHITE};
 
@@ -37,10 +39,14 @@ char *open_tags[16] = {
     "\e[1;37m"
 };
 
-typedef struct args {
+struct args_node {
     int argc;
-    char **argv;
-} args;
+    char *argv[MAX_ARGS];
+    struct args *next;
+    struct args *prev;
+    int srcfd;
+    int desfd;
+};
 
 typedef struct job {
     int pid;
