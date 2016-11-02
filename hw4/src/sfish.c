@@ -100,7 +100,7 @@ int sf_cd(int argc, char **argv) {
 
     if (argc == 1 || strncmp(path, "~", 1) == 0) {
         strcpy(new_path_ptr ,getenv("HOME"));
-        if (strcmp(path, "~") != 0) {
+        if (argc != 1 && strcmp(path, "~") != 0) {
             size_t homelen = strlen(new_path_ptr);
             strncpy(new_path_ptr + homelen, path + 1, strlen(path) - 1);
         }
@@ -331,9 +331,7 @@ int parse_args(char *input, struct args_node **args_head) {
     }
 
     int nexec = 0;
-    struct args_node *args_cursor, *args_prev = NULL;
-    args_cursor = calloc(1, sizeof(struct args_node));
-    *args_head = args_cursor;
+    struct args_node *args_cursor = calloc(1, sizeof(struct args_node));
 
     // Separate by pipe
     char *exec;
@@ -343,13 +341,12 @@ int parse_args(char *input, struct args_node **args_head) {
             free_args(*args_head);
             return 0;
         }
-        // Add node to list
-        if (args_cursor == NULL) {
-            args_cursor = calloc(1, sizeof(struct args_node));
-            args_cursor->prev = args_prev;
-        }
-        if (args_prev != NULL) {
-            args_prev->next = args_cursor;
+        // Make new node 
+        if (*args_head == NULL) {
+            *args_head = args_cursor;
+        } else {
+            args_cursor->next = calloc(1, sizeof(struct args_node));
+            args_cursor = args_cursor->next;
         }
         args_cursor->srcfd = args_cursor->desfd = -1;
         ++nexec;
@@ -373,7 +370,8 @@ int parse_args(char *input, struct args_node **args_head) {
                 open(fp, O_WRONLY | O_TRUNC | O_CREAT, S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR);
                 non_args = true;
             } else if (strcmp(args_cursor->argv[i], "2>") == 0) {
-                args_cursor->desfd = STDERR_FILENO;
+                args_cursor->errfd = 
+                open(fp, O_WRONLY | O_TRUNC | O_CREAT, S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR);
                 non_args = true;
             } else if (strcmp(args_cursor->argv[i], ">>") == 0) {
                 args_cursor->desfd = 
@@ -387,7 +385,6 @@ int parse_args(char *input, struct args_node **args_head) {
             }
             memset(fp, 0, PWD_SIZE);
         }
-        args_cursor = args_cursor->next;
     }
     return nexec;
 }
@@ -399,9 +396,14 @@ void eval_cmd(char *input) {
     // Parse cmd and alloc for argv
     int nexec = parse_args(input, &args_head);
     args_cursor = args_head;
-    
+
+    // No command
+    if (nexec == 0) {
+        return;
+    }
+
     // Create pipes for job
-    int pipes[nexec - 1], i;
+    int pipes[(nexec - 1) * 2], i;
     if (nexec > 1) {
         for (i = 0; i < nexec; ++i) {
             if (pipe(pipes + (i * 2)) > 0) {
@@ -412,28 +414,65 @@ void eval_cmd(char *input) {
         pipes[0] = -1;
     }
 
-    // No command
-    if (nexec == 0) {
-        return;
-    }
-
     // Job - TODO
 
 
     // Builtin
     int (*func)(int, char**);
     if ((func = get_builtin(args_cursor->argv[0])) != NULL) {
-        (*func)(args_cursor->argc, args_cursor->argv); // Fork for output redir
+        // Redirection
+        if (args_cursor->desfd != -1) {
+            // Child
+            if ((pid = fork()) == 0) {
+                if (args_cursor->desfd != -1) {
+                    dup2(args_cursor->desfd, STDOUT_FILENO);
+                    close(args_cursor->desfd);
+                }
+              (*func)(args_cursor->argc, args_cursor->argv);
+              exit(0); 
+            } 
+            // Parent
+            else {
+                // Close
+                if (args_cursor->srcfd != -1) {
+                    close(args_cursor->srcfd);
+                }
+                if (args_cursor->desfd != -1) {
+                    close(args_cursor->desfd);
+                }
+                int status;
+                if (waitpid(pid, &status, 0) < 0) {
+                    s_print(STDERR_FILENO, "waitpid error\n", 0);
+                }
+            } 
+        } 
+        // No Redirection
+        else {
+            (*func)(args_cursor->argc, args_cursor->argv);
+        }
     }
 
     // Executable
     else {
-        // Spawn all children
-        args_cursor = args_head;
+        i = 0;
         while (args_cursor != NULL) {
             // Child
             if ((pid = fork()) == 0) {
-                // Set redirections
+                // Pipes
+                if (pipes[0] != -1) {
+                    // Output pipe
+                    if (i % 2 == 0) {
+                        if (dup2(pipes[i + 1], STDOUT_FILENO) == -1)
+                            printf("WHY\n");
+                        close(pipes[i + 1]);
+                    } 
+                    // Input pipe
+                    else {
+                        dup2(pipes[i - 1], STDIN_FILENO);
+                        close(pipes[i - 1]);
+                    }
+                }
+                // Non-Pipes
                 if (args_cursor->srcfd != -1) {
                     dup2(args_cursor->srcfd, STDIN_FILENO);
                     close(args_cursor->srcfd);
@@ -442,6 +481,7 @@ void eval_cmd(char *input) {
                     dup2(args_cursor->desfd, STDOUT_FILENO);
                     close(args_cursor->desfd);
                 }
+                // Execute
                 if (execvp(args_cursor->argv[0], args_cursor->argv)) {
                     // Invalid
                     s_print(STDERR_FILENO, "%s: command not found\n", 1, 
@@ -449,18 +489,29 @@ void eval_cmd(char *input) {
                     exit(EXIT_SUCCESS);
                 }        
             } 
-            // Parent - foreground
-            else if (args_cursor->fg) {
-                int status;
-                if (waitpid(pid, &status, 0) < 0) {
-                    s_print(STDERR_FILENO, "waitpid error\n", 0);
-                }
-            } 
-            // Parent - background
+            // Parent
             else {
-                s_print(STDOUT_FILENO, "%d: %s\n", 2, pid, input);
+                // Close pipe if needed
+                if (pipes[0] != -1) {
+                    if (i % 2 == 0)
+                        close(pipes[i + 1]);
+                    else
+                        close(pipes[i - 1]);
+                }
+                // Foreground
+                if (args_cursor->fg) {
+                    int status;
+                    if (waitpid(pid, &status, 0) < 0) {
+                        s_print(STDERR_FILENO, "waitpid error\n", 0);
+                    }
+                } 
+                // Background
+                else {
+                    s_print(STDOUT_FILENO, "%d: %s\n", 2, pid, input);
+                }
             }
             args_cursor = args_cursor->next;
+            ++i;
         }
         // Close all redirection files
         args_cursor = args_head;
@@ -472,7 +523,7 @@ void eval_cmd(char *input) {
                 close(args_cursor->srcfd);
             }
             args_cursor = args_cursor->next;
-        } 
+        }
     }
 
     free_args(args_head);
@@ -480,22 +531,21 @@ void eval_cmd(char *input) {
 
 void sigint_handler(int sig) {
     int prev_errno = errno;
-    //pid_t pid;
 
-    // Interrupt FG process
+
     errno = prev_errno;
 }
 
-// void sigchild_handler(int sig) {
-//     int prev_errno = errno;
-//     pid_t pid;
-//     // Reap all dead children
-//     while ((pid = wait(NULL)) > 0) {
+void sigchild_handler(int sig) {
+    int prev_errno = errno;
+    pid_t pid;
+    // Reap all dead children
+    while ((pid = wait(NULL)) > 0) {
 
-//     }
+    }
 
-//     errno = prev_errno;
-// }
+    errno = prev_errno;
+}
 
 int main(int argc, char** argv) {
     //DO NOT MODIFY THIS. If you do you will get a ZERO.
@@ -511,7 +561,7 @@ int main(int argc, char** argv) {
     // set_handlers();
 
     char *test2 = calloc(20, 1);
-    strcpy(test2, "ls > test.txt");
+    strcpy(test2, "ls | grep '.txt' | wc -l");
     eval_cmd(test2);
 
     // char *test = calloc(20, 1);

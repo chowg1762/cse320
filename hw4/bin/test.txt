@@ -1,2 +1,0 @@
-sfish
-test.txt
