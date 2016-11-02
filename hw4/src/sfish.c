@@ -64,16 +64,6 @@ void s_print(int fd, const char *format, int nvar, ...) {
     write(fd, str, strlen(str));
 }
 
-char *strtrim(char *input) {
-    char *trimmed;
-    while ((trimmed = strsep(input, " ")) != NULL) {
-        if (strlen(trimmed) != 0) {
-            break;
-        }
-    }
-    return trimmed;
-}
-
 void update_pwd() {
     getcwd(pwd, PWD_SIZE);
     
@@ -276,6 +266,21 @@ void make_prompt(char* prompt) {
     var_cat(prompt, 3, "[", pwd, "]>");
 }
 
+void free_args(struct args_node *cursor) {
+    struct args_node *temp;
+    int i;
+    while (cursor != NULL) {
+        for (i = 0; i < MAX_ARGS; ++i) {
+            if (cursor->argv[i] == NULL)
+                break;
+            free(cursor->argv[i]);
+        }
+        temp = cursor->next;
+        free(cursor);
+        cursor = temp;
+    }
+}
+
 int make_args(char *cmd, int *argc, char **argv) {
     *argc = 0;
     char *arg, *argsec, *tok, **tokp = &tok;
@@ -283,6 +288,11 @@ int make_args(char *cmd, int *argc, char **argv) {
     // exe arg0 arg1<file0>file1
     if ((argsec = strtok_r(cmd, "<>", tokp)) != NULL) {
         do {
+            if (strncmp(argsec - 1, ">", 1) == 0 ||
+            strncmp(argsec - 1, "<", 1) == 0) {
+                argv[*argc] = calloc(1, sizeof(char));
+                strncpy(argv[*argc++], argsec - 1, 1);
+            }
             while ((arg = strsep(&argsec, " ")) != NULL) {
                 if (strlen(arg) != 0) {
                     argv[*argc] = calloc(strlen(arg) + 1, sizeof(char));
@@ -306,9 +316,9 @@ int make_args(char *cmd, int *argc, char **argv) {
     return 1;
 }
 
-int parse_args(char *input, struct args *args_head) {
+int parse_args(char *input, struct args_node **args_head) {
     // Copy input to sep
-    char cmd[strlen(input) + 1];
+    char cmd[strlen(input) + 1], *cmdp = cmd;
     strcpy(cmd, input);
     
     if (strlen(input) == 0) {
@@ -316,62 +326,132 @@ int parse_args(char *input, struct args *args_head) {
     }
 
     int nexec = 0;
-    struct args *args_cursor = args_head, *args_prev;
-    args_cursor = calloc(1, sizeof(struct args));
+    struct args_node *args_cursor, *args_prev = NULL;
+    args_cursor = calloc(1, sizeof(struct args_node));
+    *args_head = args_cursor;
 
     // Separate by pipe
-    char *exec, *seg, *tok, **tokp = &tok;
-    while ((exec = strsep(cmd, "|")) != NULL) {
+    char *exec;
+    while ((exec = strsep(&cmdp, "|")) != NULL) {
+        if (strlen(exec) == 0) {
+            s_print(STDERR_FILENO, "Invalid command\n", 0);
+            free_args(*args_head);
+            return 0;
+        }
         // Add node to list
-        args_cursor = calloc(1, sizeof(struct args));
-        args_cursor->prev = args_prev;
+        if (args_cursor == NULL) {
+            args_cursor = calloc(1, sizeof(struct args_node));
+            args_cursor->prev = args_prev;
+        }
         if (args_prev != NULL) {
             args_prev->next = args_cursor;
         }
+        args_cursor->srcfd = args_cursor->desfd = -1;
         ++nexec;
         // Fill new args
-        make_args(exec, &args_cursor->argc, args_cursor->argv);
+        args_cursor->fg = make_args(exec, &args_cursor->argc, args_cursor->argv);
+        
         // Check for redirection
         int i;
-        for (i = 0; i < args_cursor->argc; ++i) {
+        for (i = 1; i < args_cursor->argc; ++i) {
             if (strcmp(args_cursor->argv[i], "<") == 0) {
-                agrs_cursor->srcfd = open(args_cursor->argv[++i], O_RDONLY);
+                args_cursor->srcfd = open(args_cursor->argv[++i], O_RDONLY);
             } else if (strcmp(args_cursor->argv[i], ">") == 0) {
-                agrs_cursor->desfd = open(args_cursor->argv[++i], O_WRONLY);
+                args_cursor->desfd = 
+                open(args_cursor->argv[++i], O_WRONLY | O_CREAT);
             } else if (strcmp(args_cursor->argv[i], "2>") == 0) {
                 args_cursor->desfd = STDERR_FILENO;
             } else if (strcmp(args_cursor->argv[i], ">>") == 0) {
-                args_cursor->desfd = open(args_cursor->argv[i++], O_WRONLY | O_APPEND)
+                args_cursor->desfd = 
+                open(args_cursor->argv[i++], O_WRONLY | O_APPEND | O_CREAT);
             }
-        }
-        if ((seg = strtok_r(exec, "<>", tokp)) != NULL) {
-            do {
-                seg = strtrim(seg);
-                if (strncmp(seg - 1, "<", 1) == 0) {
-                    
-                } else if (strncmp(seg - 1, ">", 1) == 0) {
-
-                }
-            } while ((seg = strtok_r(NULL, "<>", tokp)) != NULL);
         }
         args_cursor = args_cursor->next;
     }
     return nexec;
 }
 
-void free_args(struct args_node *cursor) {
-    struct args_node *temp;
-    int i;
-    while (cursor != NULL) {
-        for (i = 0; i < MAX_ARGS; ++i) {
-            if (cursor->argv[i] == NULL)
-                break;
-            free(cursor->argv[i])
+void eval_cmd(char *input) {
+    struct args_node *args_head = NULL, *args_cursor;
+    pid_t pid;
+
+    // Parse cmd and alloc for argv
+    int nexec = parse_args(input, &args_head);
+    args_cursor = args_head;
+    
+    // Create pipes for job
+    int pipes[nexec - 1], i;
+    if (nexec > 1) {
+        for (i = 0; i < nexec; ++i) {
+            if (pipe(pipes + (i * 2)) > 0) {
+                s_print(STDERR_FILENO, "Error creating pipes\n", 0);
+            }
         }
-        temp = cursor->next;
-        free(cursor);
-        cursor = temp;
+    } else {
+        pipes[0] = -1;
     }
+
+    // No command
+    if (nexec == 0) {
+        return;
+    }
+
+    // Job - TODO
+
+
+    // Builtin
+    int (*func)(int, char**);
+    if ((func = get_builtin(args_cursor->argv[0])) != NULL) {
+        (*func)(args_cursor->argc, args_cursor->argv); // Fork for output redir
+    }
+
+    // Executable
+    else {
+        // Spawn all children
+        args_cursor = args_head;
+        while (args_cursor != NULL) {
+            // Child
+            if ((pid = fork()) == 0) {
+                // Set redirections
+                if (args_cursor->srcfd != -1)
+                    dup2(STDIN_FILENO, args_cursor->srcfd);
+                if (args_cursor->desfd != -1)
+                    dup2(STDOUT_FILENO, args_cursor->desfd);
+
+                if (execvp(args_cursor->argv[0], args_cursor->argv)) {
+                    // Invalid
+                    s_print(STDERR_FILENO, "%s: command not found\n", 1, 
+                        args_cursor->argv[0]);
+                    exit(EXIT_SUCCESS);
+                }        
+            } 
+            // Parent - foreground
+            else if (args_cursor->fg) {
+                int status;
+                if (waitpid(pid, &status, 0) < 0) {
+                    s_print(STDERR_FILENO, "waitpid error\n", 0);
+                }
+            } 
+            // Parent - background
+            else {
+                s_print(STDOUT_FILENO, "%d: %s\n", 2, pid, input);
+            }
+            args_cursor = args_cursor->next;
+        }
+        // Close all redirection files
+        args_cursor = args_head;
+        while (args_cursor != NULL) {
+            if (args_cursor->srcfd != -1) {
+                close(args_cursor->srcfd);
+            }
+            if (args_cursor->desfd != -1) {
+                close(args_cursor->srcfd);
+            }
+            args_cursor = args_cursor->next;
+        } 
+    }
+
+    free_args(args_head);
 }
 
 void sigint_handler(int sig) {
@@ -393,115 +473,6 @@ void sigint_handler(int sig) {
 //     errno = prev_errno;
 // }
 
-void eval_cmd(char *input) {
-    struct args_node *args_head, *args_cursor = args_head;
-    bool fg;
-    pid_t pid;
-    bool first = true;
-
-    // Parse cmd and alloc for argv
-    int srcfd, desfd;
-    char *cmd, *tok, **tokp = &tok;
-    if ((cmd = strtok_r(input, "|", tokp)) != NULL) {
-        do {
-            // Make new args_node 
-            args_cursor = calloc(1, sizeof(struct args_node));
-            fg = make_args(cmd, &args_cursor->argc, args_cursor->argv);
-
-            // Redir from/to file
-            if (!first && (strncmp(cmd - 1, "<", 1) == 0 || 
-            strncmp(cmd - 1, ">", 1) == 0)) {
-                // Trim whitespace
-                char *filename;
-                while (filename = strsep(cmd, " ") != NULL) {
-                    if (strlen(filename) != 0) {
-                        break;
-                    }
-                }
-                // No file given
-                if (filename == NULL) {
-                    s_print(STDERR_FILENO, "Invalid command: %s", 1, input);
-                    free_args(args_head);
-                    return;
-                }
-                if (strncmp(cmd - 1, "<", 1) == 0) {
-                    args_cursor->srcfd = open(filename, O_RDONLY);
-                    args_cursor->desfd = STDOUT_FILENO;
-                } else {
-                    if (strncmp((cmd - 2), "2", 1) == 0) {
-                        args_cursor->srcfd = STDERR_FILENO;
-                        args_cursor->desfd = STDOUT_FILENO;
-                    } else {
-                        args_cursor->srcfd = STDOUT_FILENO;
-                        args_cursor->desfd = open(filename, O_WRONLY);
-                    }
-                } 
-            }
-            // Read next executable
-            else if (!first && strncmp(cmd - 1), "|", 1) == 0) {
-                if (cmd = strtok_r(NULL, "|", tokp) != NULL) {
-                    struct args_node *args_new = 
-                        calloc(1, sizeof(struct args_node));
-                    make_args(cmd, &args_new->argc, args_cursor->argv);
-                } else {
-                    s_print(STDERR_FILENO, "Invalid command: %s", 1, input);
-                    free_args(args_head);
-                    return;
-                }
-            }
-
-
-        } while ((cmd = strtok_r(NULL, "<>|", tokp)) != NULL);
-    }
-
-    // No command
-    int nexec;
-    if ((nexec = parse_args(input)) == 0) {
-        return;
-    }
-
-    // Job - TODO
-
-    // Builtin
-    int (*func)(int, char**);
-    if ((func = get_builtin(args_list[0].argv[0])) != NULL) {
-        (*func)(argc, argv); // Fork for output redir
-    }
-
-    // Executable
-    else {
-        // Spawn all children
-        argc_cursor = args_head;
-        while (args_cursor != NULL) {
-            // Child
-            if ((pid = fork()) == 0) {
-                // Set redirections
-
-                if (execvp(args_cursor->argv[0], args_cursor->argv)) {
-                    // Invalid
-                    s_print(STDERR_FILENO, "%s: command not found\n", 1, 
-                        args_cursor->argv[0]);
-                    exit(EXIT_SUCCESS);
-                }        
-            } 
-            // Parent - foreground
-            else if (fg) {
-                int status;
-                if (waitpid(pid, &status, 0) < 0) {
-                    s_print(STDERR_FILENO, "waitpid error\n", 0);
-                }
-            } 
-            // Parent - background
-            else {
-                s_print(STDOUT_FILENO, "%d: %s\n", 2, pid, input);
-            }
-            args_cursor = args_cursor->next;
-        }
-    }
-
-    free_args(args_head);
-}
-
 int main(int argc, char** argv) {
     //DO NOT MODIFY THIS. If you do you will get a ZERO.
     rl_catch_signals = 0;
@@ -516,7 +487,7 @@ int main(int argc, char** argv) {
     // set_handlers();
 
     // char *test2 = calloc(20, 1);
-    // strcpy(test2, "");
+    // strcpy(test2, "ls");
     // eval_cmd(test2);
 
     // char *test = calloc(20, 1);

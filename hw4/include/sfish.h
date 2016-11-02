@@ -2,6 +2,7 @@
 #define SFISH_H
 
 #include <errno.h>
+#include <fcntl.h>
 #include <readline/readline.h>
 #include <readline/history.h>
 // #include <signals.h>
@@ -42,10 +43,11 @@ char *open_tags[16] = {
 struct args_node {
     int argc;
     char *argv[MAX_ARGS];
-    struct args *next;
-    struct args *prev;
     int srcfd;
     int desfd;
+    bool fg;
+    struct args_node *next;
+    struct args_node *prev;
 };
 
 typedef struct job {
