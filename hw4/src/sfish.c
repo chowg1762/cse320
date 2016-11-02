@@ -283,25 +283,30 @@ void free_args(struct args_node *cursor) {
 
 int make_args(char *cmd, int *argc, char **argv) {
     *argc = 0;
-    char *arg, *argsec, *tok, **tokp = &tok;
+    char cmd_cpy[strlen(cmd) + 1], *arg, *argsec;
+    strcpy(cmd_cpy, cmd);
+    int delim_ind = 0;
     
     // exe arg0 arg1<file0>file1
-    if ((argsec = strtok_r(cmd, "<>", tokp)) != NULL) {
-        do {
-            if (strncmp(argsec - 1, ">", 1) == 0 ||
-            strncmp(argsec - 1, "<", 1) == 0) {
-                argv[*argc] = calloc(1, sizeof(char));
-                strncpy(argv[*argc++], argsec - 1, 1);
-            }
-            while ((arg = strsep(&argsec, " ")) != NULL) {
-                if (strlen(arg) != 0) {
-                    argv[*argc] = calloc(strlen(arg) + 1, sizeof(char));
-                    strcpy(argv[*argc], arg);
-                    ++(*argc);
-                }   
-            }
-        } while ((argsec = strtok_r(NULL, "<>", tokp)) != NULL); 
-    }
+    while ((argsec = strsep(&cmd, "<>")) != NULL) {
+        if (cmd != NULL)
+            delim_ind = cmd - argsec - 1;
+        else
+            delim_ind = 0;
+        while ((arg = strsep(&argsec, " ")) != NULL) {
+            if (strlen(arg) != 0) {
+                argv[*argc] = calloc(strlen(arg) + 1, sizeof(char));
+                strcpy(argv[(*argc)++], arg);
+            }   
+        }
+        if (delim_ind > 0) {
+            if (cmd_cpy[delim_ind] == '>' || cmd_cpy[delim_ind] == '<') {
+                argv[*argc] = calloc(2, sizeof(char));
+                argv[(*argc)++][0] = cmd_cpy[delim_ind];
+            } 
+        }
+    }  
+    
     
     // Set rest of argv NULL
     int i;
@@ -351,20 +356,36 @@ int parse_args(char *input, struct args_node **args_head) {
         // Fill new args
         args_cursor->fg = make_args(exec, &args_cursor->argc, args_cursor->argv);
         
-        // Check for redirection
+        // Check for redirection, consume from args
         int i;
-        for (i = 1; i < args_cursor->argc; ++i) {
+        bool non_args = false;
+        char fpb[PWD_SIZE], *fp = fpb;
+        memset(fp, 0, PWD_SIZE);
+        char cwdb[PWD_SIZE], *cwdp = cwdb;
+        getcwd(cwdp, PWD_SIZE);
+        for (i = 1; i < args_cursor->argc - 1; ++i) {
+            var_cat(fp, 3, cwdp, "/", args_cursor->argv[i + 1]);
             if (strcmp(args_cursor->argv[i], "<") == 0) {
-                args_cursor->srcfd = open(args_cursor->argv[++i], O_RDONLY);
+                args_cursor->srcfd = open(fp, O_RDONLY);
+                non_args = true;
             } else if (strcmp(args_cursor->argv[i], ">") == 0) {
                 args_cursor->desfd = 
-                open(args_cursor->argv[++i], O_WRONLY | O_CREAT);
+                open(fp, O_WRONLY | O_TRUNC | O_CREAT, S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR);
+                non_args = true;
             } else if (strcmp(args_cursor->argv[i], "2>") == 0) {
                 args_cursor->desfd = STDERR_FILENO;
+                non_args = true;
             } else if (strcmp(args_cursor->argv[i], ">>") == 0) {
                 args_cursor->desfd = 
-                open(args_cursor->argv[i++], O_WRONLY | O_APPEND | O_CREAT);
+                open(fp, O_RDWR | O_APPEND | O_CREAT , S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR);
+                non_args = true;
             }
+            if (non_args) {
+                free(args_cursor->argv[i]);
+                args_cursor->argv[i] = NULL;
+                // argc - 1
+            }
+            memset(fp, 0, PWD_SIZE);
         }
         args_cursor = args_cursor->next;
     }
@@ -413,11 +434,14 @@ void eval_cmd(char *input) {
             // Child
             if ((pid = fork()) == 0) {
                 // Set redirections
-                if (args_cursor->srcfd != -1)
-                    dup2(STDIN_FILENO, args_cursor->srcfd);
-                if (args_cursor->desfd != -1)
-                    dup2(STDOUT_FILENO, args_cursor->desfd);
-
+                if (args_cursor->srcfd != -1) {
+                    dup2(args_cursor->srcfd, STDIN_FILENO);
+                    close(args_cursor->srcfd);
+                }
+                if (args_cursor->desfd != -1) {
+                    dup2(args_cursor->desfd, STDOUT_FILENO);
+                    close(args_cursor->desfd);
+                }
                 if (execvp(args_cursor->argv[0], args_cursor->argv)) {
                     // Invalid
                     s_print(STDERR_FILENO, "%s: command not found\n", 1, 
@@ -486,9 +510,9 @@ int main(int argc, char** argv) {
     // Set sig handlers
     // set_handlers();
 
-    // char *test2 = calloc(20, 1);
-    // strcpy(test2, "ls");
-    // eval_cmd(test2);
+    char *test2 = calloc(20, 1);
+    strcpy(test2, "ls > test.txt");
+    eval_cmd(test2);
 
     // char *test = calloc(20, 1);
     // strcpy(test, "cd ..");
