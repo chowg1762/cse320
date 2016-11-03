@@ -5,7 +5,7 @@
 #include <fcntl.h>
 #include <readline/readline.h>
 #include <readline/history.h>
-// #include <signals.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -83,10 +83,11 @@ struct args_node {
 };
 
 struct job {
-    int index;
+    int jid;
     int pid;
     char *cmd;
     char *status;
+    bool fg;
 };
 
 char *exec_status[2] = {"Running", "Stopped"};

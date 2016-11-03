@@ -7,6 +7,7 @@
 #define CLOSE_TAG "\x1b[0m"
 
 // Environment variables
+
 char last_dir[256];
 int last_return;
 
@@ -315,7 +316,7 @@ int make_args(char *cmd, int *argc, char **argv) {
     }
     
     // Check for background flag
-    if (*argc != 0 && strcmp(argv[*argc - 1], "&") == 0) {
+    if (*argc != 0 && strstr(argv[*argc - 1], "&") != NULL) {
         return 0;
     }
     return 1;
@@ -363,7 +364,12 @@ int parse_args(char *input, struct args_node **args_head) {
         for (i = 1; i < args_cursor->argc - 1; ++i) {
             var_cat(fp, 3, cwdp, "/", args_cursor->argv[i + 1]);
             if (strcmp(args_cursor->argv[i], "<") == 0) {
-                args_cursor->srcfd = open(fp, O_RDONLY);
+                if ((args_cursor->srcfd = open(fp, O_RDONLY)) == -1) {
+                    s_print(STDERR_FILENO, "Error opening file '%s'\n", 1,
+                    args_cursor->argv[i + 1]);
+                    free_args(*args_head);
+                    return 0;
+                }
                 non_args = true;
             } else if (strcmp(args_cursor->argv[i], ">") == 0) {
                 args_cursor->desfd = 
@@ -381,7 +387,6 @@ int parse_args(char *input, struct args_node **args_head) {
             if (non_args) {
                 free(args_cursor->argv[i]);
                 args_cursor->argv[i] = NULL;
-                // argc - 1
             }
             memset(fp, 0, PWD_SIZE);
         }
@@ -405,7 +410,7 @@ void eval_cmd(char *input) {
     // Create pipes for job
     int pipes[(nexec - 1) * 2], i;
     if (nexec > 1) {
-        for (i = 0; i < nexec; ++i) {
+        for (i = 0; i < nexec - 1; ++i) {
             if (pipe(pipes + (i * 2)) > 0) {
                 s_print(STDERR_FILENO, "Error creating pipes\n", 0);
             }
@@ -460,17 +465,20 @@ void eval_cmd(char *input) {
             if ((pid = fork()) == 0) {
                 // Pipes
                 if (pipes[0] != -1) {
-                    if (i > 0 && i < nexec - 1) {
-                        dup2(pipes[i - 1], STDIN_FILENO);
-                        dup2(pipes[i + 2], STDOUT_FILENO);
-                        close(pipes[i - 1]);
-                        close(pipes[i + 2]); // a:1, b:03, c:2
+                    if (i > 0 && i < (nexec - 1) << 1) {
+                        dup2(pipes[i - 2], STDIN_FILENO);
+                        dup2(pipes[i + 1], STDOUT_FILENO);
+                        // close(pipes[i - 1]);
+                        // close(pipes[i + 2]); // a:1, b:03, c:2
                     } else if (i == 0) {
                         dup2(pipes[1], STDOUT_FILENO);
-                        close(pipes[1]); 
+                        // close(pipes[1]); 
                     } else {
                         dup2(pipes[((nexec - 1) * 2) - 2], STDIN_FILENO);
-                        close(pipes[((nexec - 1) * 2) - 2]);
+                        // close(pipes[((nexec - 1) * 2) - 2]);
+                    }
+                    for (int j = 0; j < (nexec - 1) * 2; ++j) {
+                        close(pipes[j]);
                     }
                 }
                 // Non-Pipes
@@ -494,9 +502,9 @@ void eval_cmd(char *input) {
             else {
                 // Close pipe if needed
                 if (pipes[0] != -1) {
-                    if (i > 0 && i < nexec - 1) {
-                        close(pipes[i - 1]);
-                        close(pipes[i + 2]);
+                    if (i > 0 && i < (nexec - 1) << 1) {
+                        close(pipes[i - 2]);
+                        close(pipes[i + 1]);
                     } else if (i == 0) {
                         close(pipes[1]);
                     } else {
@@ -506,9 +514,10 @@ void eval_cmd(char *input) {
             
                 // Foreground
                 if (args_cursor->fg) {
-                    int status;
+                    int status, prev_errno = errno;
                     if (waitpid(pid, &status, 0) < 0) {
                         s_print(STDERR_FILENO, "waitpid error\n", 0);
+                        errno = prev_errno;
                     }
                 } 
                 // Background
@@ -517,7 +526,7 @@ void eval_cmd(char *input) {
                 }
             }
             args_cursor = args_cursor->next;
-            ++i;
+            i += 2;
         }
         // Close all redirection files
         args_cursor = args_head;
@@ -537,18 +546,49 @@ void eval_cmd(char *input) {
 
 void sigint_handler(int sig) {
     int prev_errno = errno;
+    sigset_t int_mask, prev_mask;
+
+    // Block sigint
+    sigemptyset(&int_mask);
+    sigaddset(&int_mask, SIGINT);
+    sigprocmask(SIG_BLOCK, &int_mask, &prev_mask);
+
+    // Tell foreground job to interrupt
 
 
+    // Unblock sigint
+    sigprocmask(SIG_SETMASK, &prev_mask, NULL);
+    
     errno = prev_errno;
-}
+} 
 
-void sigchild_handler(int sig) {
-    int prev_errno = errno;
+void sigchld_handler(int sig) {
+    int prev_errno = errno, status;
+    sigset_t chld_mask, prev_mask;
     pid_t pid;
-    // Reap all dead children
-    while ((pid = wait(NULL)) > 0) {
 
+    // // Check if responsible child is background
+    // struct job *job_cursor = job_head;
+    // while (job_cursor != NULL) {
+    //     if (job_cursor->fg)
+    //         return;
+    //     job_cursor = job_cursor->next;
+    // }
+    
+    // Block sigchld
+    sigemptyset(&chld_mask);
+    sigaddset(&chld_mask, SIGCHLD);
+    sigprocmask(SIG_BLOCK, &chld_mask, &prev_mask);
+
+    // Reap all dead children
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+        // Remove pid from job list
+        // remove_job(pid);
+        printf("HEIM %d\n", pid);
     }
+
+    // Unblock sigchld
+    sigprocmask(SIG_SETMASK, &prev_mask, NULL);
 
     errno = prev_errno;
 }
@@ -558,6 +598,8 @@ int main(int argc, char** argv) {
     rl_catch_signals = 0;
     //This is disable readline's default signal handlers, since you are going
     //to install your own.
+    signal(SIGCHLD, sigchld_handler);
+
     pwd = calloc(PWD_SIZE, sizeof(char));
     machine = calloc(HOSTNAME_SIZE, sizeof(char));
     char *prompt = calloc(PROMPT_SIZE, sizeof(char));
@@ -566,11 +608,11 @@ int main(int argc, char** argv) {
     // Set sig handlers
     // set_handlers();
 
-    char *test2 = calloc(20, 1);
-    strcpy(test2, "ls | grep '.txt' | wc -l");
+    char *test2 = calloc(100, 1);
+    strcpy(test2, "grep - < hello | cowsay | grep ^ | cowsay > madness");
     eval_cmd(test2);
 
-    // char *test = calloc(20, 1);
+    // char *test = calloc(20, 1); grep - < hello | cowsay | grep ^ | cowsay > madness
     // strcpy(test, "cd ..");
     // eval_cmd(test);
 
