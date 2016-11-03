@@ -460,16 +460,17 @@ void eval_cmd(char *input) {
             if ((pid = fork()) == 0) {
                 // Pipes
                 if (pipes[0] != -1) {
-                    // Output pipe
-                    if (i % 2 == 0) {
-                        if (dup2(pipes[i + 1], STDOUT_FILENO) == -1)
-                            printf("WHY\n");
-                        close(pipes[i + 1]);
-                    } 
-                    // Input pipe
-                    else {
+                    if (i > 0 && i < nexec - 1) {
                         dup2(pipes[i - 1], STDIN_FILENO);
+                        dup2(pipes[i + 2], STDOUT_FILENO);
                         close(pipes[i - 1]);
+                        close(pipes[i + 2]); // a:1, b:03, c:2
+                    } else if (i == 0) {
+                        dup2(pipes[1], STDOUT_FILENO);
+                        close(pipes[1]); 
+                    } else {
+                        dup2(pipes[((nexec - 1) * 2) - 2], STDIN_FILENO);
+                        close(pipes[((nexec - 1) * 2) - 2]);
                     }
                 }
                 // Non-Pipes
@@ -493,11 +494,16 @@ void eval_cmd(char *input) {
             else {
                 // Close pipe if needed
                 if (pipes[0] != -1) {
-                    if (i % 2 == 0)
-                        close(pipes[i + 1]);
-                    else
+                    if (i > 0 && i < nexec - 1) {
                         close(pipes[i - 1]);
+                        close(pipes[i + 2]);
+                    } else if (i == 0) {
+                        close(pipes[1]);
+                    } else {
+                        close(pipes[((nexec - 1) * 2) - 2]);
+                    }
                 }
+            
                 // Foreground
                 if (args_cursor->fg) {
                     int status;
