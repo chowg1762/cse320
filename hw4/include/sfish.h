@@ -78,7 +78,6 @@ struct args_node {
     int srcfd;
     int desfd;
     int errfd;
-    bool fg;
     struct args_node *next;
 };
 
@@ -88,6 +87,8 @@ struct job {
     char *cmd;
     char *status;
     bool fg;
+    int nexec;
+    struct args_node *args_head;
 };
 
 char *exec_status[2] = {"Running", "Stopped"};

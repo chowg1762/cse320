@@ -7,7 +7,7 @@
 #define CLOSE_TAG "\x1b[0m"
 
 // Environment variables
-
+struct job *jobs_head;
 char last_dir[256];
 int last_return;
 
@@ -32,7 +32,7 @@ char *var_cat(char *buf, int nvar, ...) {
 
 void s_print(int fd, const char *format, int nvar, ...) {
     // Count vars in format
-    int i = 0, j;
+    int i = 0, j; // s_print(STDOUT_FILENO, "yo %s %s %s\n", 3, s1, s2, s3);
 
     // Initialize va_list
     va_list vars;
@@ -394,155 +394,263 @@ int parse_args(char *input, struct args_node **args_head) {
     return nexec;
 }
 
-void eval_cmd(char *input) {
-    struct args_node *args_head = NULL, *args_cursor;
-    pid_t pid;
-
-    // Parse cmd and alloc for argv
-    int nexec = parse_args(input, &args_head);
-    args_cursor = args_head;
-
-    // No command
-    if (nexec == 0) {
-        return;
+void setup_file(struct args_node *exec, int *pipes, int npipes, int execn) {
+    // Redirect
+    if (exec->srcfd != -1) {
+        dup2(exec->srcfd, STDIN_FILENO);
+        close(exec->srcfd);
     }
+    if (exec->desfd != -1) {
+        dup2(exec->desfd, STDOUT_FILENO);
+        close(exec->desfd);
+    }
+    if (exec->errfd != -1) {
+        dup2(exec->errfd, STDERR_FILENO);
+        close(exec->errfd);
+    }
+    // Pipe
+    int pipeind = execn << 1;
+    if (pipeind < npipes - 2) {
+        dup2(pipes[pipeind + 1], STDOUT_FILENO);
+        close(pipes[pipeind + 1]);
+    }
+    if (pipeind > 0) {
+        dup2(pipes[pipeind - 2], STDIN_FILENO);
+        close(pipes[pipeind - 2]);
+    }
+}
 
-    // Create pipes for job
-    int pipes[(nexec - 1) * 2], i;
-    if (nexec > 1) {
-        for (i = 0; i < nexec - 1; ++i) {
-            if (pipe(pipes + (i * 2)) > 0) {
-                s_print(STDERR_FILENO, "Error creating pipes\n", 0);
-            }
-        }
+void add_job(struct job *new_job) {
+    struct job *cursor = jobs_head, *prev_job;
+    // Find lowest available jid
+    if (cursor == NULL || cursor->jid > 1) {
+        new_job->jid = 1;
     } else {
-        pipes[0] = -1;
+        while (cursor != NULL) {
+            if (prev_job != NULL && cursor->jid > prev_job->jid + 1) {
+                new_job->jid = prev_job->jid + 1;
+                prev_job->next = new_job;
+                new_job->next = cursor;
+                return;
+            }
+            prev_job = cursor;
+            cursor = cursor->next;
+        }
+        if (new_job->jid == 0) {
+            new_job->jid = cursor->jid + 1;
+        }
+    }
+}
+
+void start_job(struct job *new_job) {
+    int pid;
+    args_node *cursor = new_job->args_head;
+
+    // Make pipes
+    int npipes = (new_job->nexec - 1) << 1, *pipes = calloc(npipes, sizeof(int));
+    for (int i = 0; i < npipes << 2; ++i) {
+        if (pipe(pipes + (i * 2)) > 0) {
+            s_print(STDERR_FILENO, "Error creating pipes\n", 0);             }
     }
 
-    // Job - TODO
-
-
-    // Builtin
+    // Fork for all execs
+    int execn = 0;
     int (*func)(int, char**);
-    if ((func = get_builtin(args_cursor->argv[0])) != NULL) {
-        // Redirection
-        if (args_cursor->desfd != -1) {
-            // Child
-            if ((pid = fork()) == 0) {
-                if (args_cursor->desfd != -1) {
-                    dup2(args_cursor->desfd, STDOUT_FILENO);
-                    close(args_cursor->desfd);
-                }
-              (*func)(args_cursor->argc, args_cursor->argv);
-              exit(0); 
-            } 
-            // Parent
+    while (cursor != NULL) {
+        // Child
+        if ((cursor->pid = fork()) == 0) {
+            setup_files(cursor, pipes, execn);
+            // Builtin
+            if ((func = getbuiltin(cursor)) != NULL) {
+                (*func)(cursor->argc, cursor->argv);
+            }
+            // Exec
             else {
-                // Close
-                if (args_cursor->srcfd != -1) {
-                    close(args_cursor->srcfd);
-                }
-                if (args_cursor->desfd != -1) {
-                    close(args_cursor->desfd);
-                }
-                int status;
-                if (waitpid(pid, &status, 0) < 0) {
-                    s_print(STDERR_FILENO, "waitpid error\n", 0);
+                if (verify_exec(cursor)) {
+                    if(execvp(args_cursor->argv[0], args_cursor->argv)) {
+                        s_print(STDERR_FILENO, "%s: command not found\n", 1, 
+                        args_cursor->argv[0]);
+                        exit(EXIT_SUCCESS);        
+                    }
+                } 
+                // Invalid exec
+                else {
+                    s_print(STDERR_FILENO, "%s: command not found\n", 1, 
+                    args_cursor->argv[0]);
+                    exit(EXIT_SUCCESS);
                 }
             } 
         } 
-        // No Redirection
+        // Parent
         else {
-            (*func)(args_cursor->argc, args_cursor->argv);
-        }
-    }
 
-    // Executable
-    else {
-        i = 0;
-        while (args_cursor != NULL) {
-            // Child
-            if ((pid = fork()) == 0) {
-                // Pipes
-                if (pipes[0] != -1) {
-                    if (i > 0 && i < (nexec - 1) << 1) {
-                        dup2(pipes[i - 2], STDIN_FILENO);
-                        dup2(pipes[i + 1], STDOUT_FILENO);
-                        // close(pipes[i - 1]);
-                        // close(pipes[i + 2]); // a:1, b:03, c:2
-                    } else if (i == 0) {
-                        dup2(pipes[1], STDOUT_FILENO);
-                        // close(pipes[1]); 
-                    } else {
-                        dup2(pipes[((nexec - 1) * 2) - 2], STDIN_FILENO);
-                        // close(pipes[((nexec - 1) * 2) - 2]);
-                    }
-                    for (int j = 0; j < (nexec - 1) * 2; ++j) {
-                        close(pipes[j]);
-                    }
-                }
-                // Non-Pipes
-                if (args_cursor->srcfd != -1) {
-                    dup2(args_cursor->srcfd, STDIN_FILENO);
-                    close(args_cursor->srcfd);
-                }
-                if (args_cursor->desfd != -1) {
-                    dup2(args_cursor->desfd, STDOUT_FILENO);
-                    close(args_cursor->desfd);
-                }
-                // Execute
-                if (execvp(args_cursor->argv[0], args_cursor->argv)) {
-                    // Invalid
-                    s_print(STDERR_FILENO, "%s: command not found\n", 1, 
-                        args_cursor->argv[0]);
-                    exit(EXIT_SUCCESS);
-                }        
-            } 
-            // Parent
-            else {
-                // Close pipe if needed
-                if (pipes[0] != -1) {
-                    if (i > 0 && i < (nexec - 1) << 1) {
-                        close(pipes[i - 2]);
-                        close(pipes[i + 1]);
-                    } else if (i == 0) {
-                        close(pipes[1]);
-                    } else {
-                        close(pipes[((nexec - 1) * 2) - 2]);
-                    }
-                }
-            
-                // Foreground
-                if (args_cursor->fg) {
-                    int status, prev_errno = errno;
-                    if (waitpid(pid, &status, 0) < 0) {
-                        s_print(STDERR_FILENO, "waitpid error\n", 0);
-                        errno = prev_errno;
-                    }
-                } 
-                // Background
-                else {
-                    s_print(STDOUT_FILENO, "%d: %s\n", 2, pid, input);
-                }
-            }
-            args_cursor = args_cursor->next;
-            i += 2;
         }
-        // Close all redirection files
-        args_cursor = args_head;
-        while (args_cursor != NULL) {
-            if (args_cursor->srcfd != -1) {
-                close(args_cursor->srcfd);
-            }
-            if (args_cursor->desfd != -1) {
-                close(args_cursor->srcfd);
-            }
-            args_cursor = args_cursor->next;
-        }
+        ++execn;
     }
-
-    free_args(args_head);
 }
+
+void eval_cmd(char *input) {
+    struct job *new_job;
+
+    // Create job and and check for no command
+    if (parse_args(input, &new_job)) {
+        return;
+    }
+
+    // Add job to job list
+    add_job(new_job);
+
+    // Fork for job and start
+    if ((new_job->pid = fork()) == 0) {
+        start_job(new_job);
+    }
+
+    // Foreground: wait for job to end
+    if (new_job->fg) {
+        int status, prev_errno = errno;
+        waitpid(new_job->pid, &status, 0) < 0) {
+            s_print(STDERR_FILENO, "waitpid error\n", 0);
+            errno = prev_errno;
+        }
+    }
+}
+
+//     // Create pipes for job
+//     int pipes[(nexec - 1) * 2], i;
+//     if (nexec > 1) {
+//         for (i = 0; i < nexec - 1; ++i) {
+//             if (pipe(pipes + (i * 2)) > 0) {
+//                 s_print(STDERR_FILENO, "Error creating pipes\n", 0);
+//             }
+//         }
+//     } else {
+//         pipes[0] = -1;
+//     }
+
+//     // Job - TODO
+
+
+//     // Builtin
+//     int (*func)(int, char**);
+//     if ((func = get_builtin(args_cursor->argv[0])) != NULL) {
+//         // Redirection
+//         if (args_cursor->desfd != -1) {
+//             // Child
+//             if ((pid = fork()) == 0) {
+//                 if (args_cursor->desfd != -1) {
+//                     dup2(args_cursor->desfd, STDOUT_FILENO);
+//                     close(args_cursor->desfd);
+//                 }
+//               (*func)(args_cursor->argc, args_cursor->argv);
+//               exit(0); 
+//             } 
+//             // Parent
+//             else {
+//                 // Close
+//                 if (args_cursor->srcfd != -1) {
+//                     close(args_cursor->srcfd);
+//                 }
+//                 if (args_cursor->desfd != -1) {
+//                     close(args_cursor->desfd);
+//                 }
+//                 int status;
+//                 if (waitpid(pid, &status, 0) < 0) {
+//                     s_print(STDERR_FILENO, "waitpid error\n", 0);
+//                 }
+//             } 
+//         } 
+//         // No Redirection
+//         else {
+//             (*func)(args_cursor->argc, args_cursor->argv);
+//         }
+//     }
+
+//     // Executable
+//     else {
+//         i = 0;
+//         while (args_cursor != NULL) {
+//             // Child
+//             if ((pid = fork()) == 0) {
+//                 // Pipes
+//                 if (pipes[0] != -1) {
+//                     if (i > 0 && i < (nexec - 1) << 1) {
+//                         dup2(pipes[i - 2], STDIN_FILENO);
+//                         dup2(pipes[i + 1], STDOUT_FILENO);
+//                         // close(pipes[i - 1]);
+//                         // close(pipes[i + 2]); // a:1, b:03, c:2
+//                     } else if (i == 0) {
+//                         dup2(pipes[1], STDOUT_FILENO);
+//                         // close(pipes[1]); 
+//                     } else {
+//                         dup2(pipes[((nexec - 1) * 2) - 2], STDIN_FILENO);
+//                         // close(pipes[((nexec - 1) * 2) - 2]);
+//                     }
+//                     for (int j = 0; j < (nexec - 1) * 2; ++j) {
+//                         close(pipes[j]);
+//                     }
+//                 }
+//                 // Non-Pipes
+//                 if (args_cursor->srcfd != -1) {
+//                     dup2(args_cursor->srcfd, STDIN_FILENO);
+//                     close(args_cursor->srcfd);
+//                 }
+//                 if (args_cursor->desfd != -1) {
+//                     dup2(args_cursor->desfd, STDOUT_FILENO);
+//                     close(args_cursor->desfd);
+//                 }
+//                 // Execute
+//                 if (execvp(args_cursor->argv[0], args_cursor->argv)) {
+//                     // Invalid
+//                     s_print(STDERR_FILENO, "%s: command not found\n", 1, 
+//                         args_cursor->argv[0]);
+//                     exit(EXIT_SUCCESS);
+//                 }        
+//             } 
+//             // Parent
+//             else {
+//                 // Close pipe if needed
+//                 if (pipes[0] != -1) {
+//                     if (i > 0 && i < (nexec - 1) << 1) {
+//                         close(pipes[i - 2]);
+//                         close(pipes[i + 1]);
+//                     } else if (i == 0) {
+//                         close(pipes[1]);
+//                     } else {
+//                         close(pipes[((nexec - 1) * 2) - 2]);
+//                     }
+//                 }
+            
+//                 // Foreground
+//                 if (args_cursor->fg) {
+//                     int status, prev_errno = errno;
+//                     if (waitpid(pid, &status, 0) < 0) {
+//                         s_print(STDERR_FILENO, "waitpid error\n", 0);
+//                         errno = prev_errno;
+//                     }
+//                 } 
+//                 // Background
+//                 else {
+//                     s_print(STDOUT_FILENO, "%d: %s\n", 2, pid, input);
+//                 }
+//             }
+//             args_cursor = args_cursor->next;
+//             i += 2;
+//         }
+//         // Close all redirection files
+//         args_cursor = args_head;
+//         while (args_cursor != NULL) {
+//             if (args_cursor->srcfd != -1) {
+//                 close(args_cursor->srcfd);
+//             }
+//             if (args_cursor->desfd != -1) {
+//                 close(args_cursor->srcfd);
+//             }
+//             args_cursor = args_cursor->next;
+//         }
+//     }
+
+//     free_args(args_head);
+// }
 
 void sigint_handler(int sig) {
     int prev_errno = errno;
