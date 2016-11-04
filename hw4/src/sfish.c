@@ -207,28 +207,36 @@ int sf_chclr(int argc, char **argv) {
     return 0;
 }
 
-void* get_builtin(char *cmd) {
-    // Check for piping
-
+void* get_builtin(char *cmd, bool *mproc) {
+    bool *mp;
+    if (mproc != NULL)
+        mp = mproc;
     if (strcmp(cmd, "help") == 0) {
+        *mp = false; 
         return &sf_help;
     }
     if (strcmp(cmd, "exit") == 0) {
+        *mp = true;
         return &sf_exit;
     }
     if (strcmp(cmd, "cd") == 0) {
+        *mp = true;
         return &sf_cd;
     }
     if (strcmp(cmd, "pwd") == 0) {
+        *mp = false; 
         return &sf_pwd;
     }
     if (strcmp(cmd, "prt") == 0) {
+        *mp= false; 
         return &sf_prt;
     }
     if (strcmp(cmd, "chpmt") == 0) {
+        *mp = true;
         return &sf_chpmt;
     }
     if (strcmp(cmd, "chclr") == 0) {
+        *mp = true;
         return &sf_chclr;
     }
     return NULL;
@@ -267,8 +275,8 @@ void make_prompt(char* prompt) {
     var_cat(prompt, 3, "[", pwd, "]>");
 }
 
-void free_args(struct args_node *cursor) {
-    struct args_node *temp;
+void free_job(struct job *done_job) {
+    struct exec *cursor = done_job->exec_head, *temp;
     int i;
     while (cursor != NULL) {
         for (i = 0; i < MAX_ARGS; ++i) {
@@ -280,6 +288,8 @@ void free_args(struct args_node *cursor) {
         free(cursor);
         cursor = temp;
     }
+    free(done_job->cmd);
+    free(done_job);
 }
 
 int make_args(char *cmd, int *argc, char **argv) {
@@ -322,79 +332,86 @@ int make_args(char *cmd, int *argc, char **argv) {
     return 1;
 }
 
-int parse_args(char *input, struct args_node **args_head) {
+int make_job(char *input, struct job **new_job) {
+    // Create new_job
+    (*new_job) = calloc(1, sizeof(struct job));
+    (*new_job)->cmd = input;
+    (*new_job)->fg = true;
+    
     // Copy input to sep
     char cmd[strlen(input) + 1], *cmdp = cmd;
     strcpy(cmd, input);
     
     if (strlen(input) == 0) {
+        free_job(*new_job);
         return 0;
     }
 
-    int nexec = 0;
-    struct args_node *args_cursor = calloc(1, sizeof(struct args_node));
+    struct exec *cursor = calloc(1, sizeof(struct exec));
 
     // Separate by pipe
-    char *exec;
-    while ((exec = strsep(&cmdp, "|")) != NULL) {
-        if (strlen(exec) == 0) {
+    char *exec_str;
+    while ((exec_str = strsep(&cmdp, "|")) != NULL) {
+        if (strlen(exec_str) == 0) {
             s_print(STDERR_FILENO, "Invalid command\n", 0);
-            free_args(*args_head);
+            free_job(*new_job);
             return 0;
         }
         // Make new node 
-        if (*args_head == NULL) {
-            *args_head = args_cursor;
+        if ((*new_job)->exec_head == NULL) {
+            (*new_job)->exec_head = cursor;
         } else {
-            args_cursor->next = calloc(1, sizeof(struct args_node));
-            args_cursor = args_cursor->next;
+            cursor->next = calloc(1, sizeof(struct exec));
+            cursor = cursor->next;
         }
-        args_cursor->srcfd = args_cursor->desfd = -1;
-        ++nexec;
+        cursor->srcfd = cursor->desfd = -1;
+        ++(*new_job)->nexec;
+        
         // Fill new args
-        args_cursor->fg = make_args(exec, &args_cursor->argc, args_cursor->argv);
+        if (make_args(exec_str, &cursor->argc, cursor->argv) == false) {
+            (*new_job)->fg = false;
+        }
         
         // Check for redirection, consume from args
-        int i;
         bool non_args = false;
         char fpb[PWD_SIZE], *fp = fpb;
         memset(fp, 0, PWD_SIZE);
         char cwdb[PWD_SIZE], *cwdp = cwdb;
         getcwd(cwdp, PWD_SIZE);
-        for (i = 1; i < args_cursor->argc - 1; ++i) {
-            var_cat(fp, 3, cwdp, "/", args_cursor->argv[i + 1]);
-            if (strcmp(args_cursor->argv[i], "<") == 0) {
-                if ((args_cursor->srcfd = open(fp, O_RDONLY)) == -1) {
+        for (int i = 1; i < cursor->argc - 1; ++i) {
+            var_cat(fp, 3, cwdp, "/", cursor->argv[i + 1]);
+            if (strcmp(cursor->argv[i], "<") == 0) {
+                if ((cursor->srcfd = open(fp, O_RDONLY)) == -1) {
                     s_print(STDERR_FILENO, "Error opening file '%s'\n", 1,
-                    args_cursor->argv[i + 1]);
-                    free_args(*args_head);
+                    cursor->argv[i + 1]);
+                    free_job(*new_job);
                     return 0;
                 }
                 non_args = true;
-            } else if (strcmp(args_cursor->argv[i], ">") == 0) {
-                args_cursor->desfd = 
+            } else if (strcmp(cursor->argv[i], ">") == 0) {
+                cursor->desfd = 
                 open(fp, O_WRONLY | O_TRUNC | O_CREAT, S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR);
                 non_args = true;
-            } else if (strcmp(args_cursor->argv[i], "2>") == 0) {
-                args_cursor->errfd = 
+            } else if (strcmp(cursor->argv[i], "2>") == 0) {
+                cursor->errfd = 
                 open(fp, O_WRONLY | O_TRUNC | O_CREAT, S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR);
                 non_args = true;
-            } else if (strcmp(args_cursor->argv[i], ">>") == 0) {
-                args_cursor->desfd = 
+            } else if (strcmp(cursor->argv[i], ">>") == 0) {
+                cursor->desfd = 
                 open(fp, O_RDWR | O_APPEND | O_CREAT , S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR);
                 non_args = true;
             }
             if (non_args) {
-                free(args_cursor->argv[i]);
-                args_cursor->argv[i] = NULL;
+                free(cursor->argv[i]);
+                cursor->argv[i] = NULL;
             }
             memset(fp, 0, PWD_SIZE);
         }
     }
-    return nexec;
+    return (*new_job)->nexec;
 }
 
-void setup_file(struct args_node *exec, int *pipes, int npipes, int execn) {
+void setup_files(struct exec *exec, int *pipes, int npipes, int execn) {
     // Redirect
     if (exec->srcfd != -1) {
         dup2(exec->srcfd, STDIN_FILENO);
@@ -425,6 +442,8 @@ void add_job(struct job *new_job) {
     // Find lowest available jid
     if (cursor == NULL || cursor->jid > 1) {
         new_job->jid = 1;
+        new_job->next = jobs_head;
+        jobs_head = new_job;
     } else {
         while (cursor != NULL) {
             if (prev_job != NULL && cursor->jid > prev_job->jid + 1) {
@@ -442,9 +461,22 @@ void add_job(struct job *new_job) {
     }
 }
 
+void remove_job(struct job *dead_job) {
+    struct job *cursor = jobs_head, *prev;
+    while (cursor != dead_job) {
+        prev = cursor;
+        cursor = cursor->next; 
+    }
+    if (prev != NULL) {
+        prev->next = cursor->next;
+    } else {
+        jobs_head = cursor->next;
+    }
+    free_job(dead_job);
+}   
+
 void start_job(struct job *new_job) {
-    int pid;
-    args_node *cursor = new_job->args_head;
+    struct exec *cursor = new_job->exec_head;
 
     // Make pipes
     int npipes = (new_job->nexec - 1) << 1, *pipes = calloc(npipes, sizeof(int));
@@ -457,35 +489,54 @@ void start_job(struct job *new_job) {
     int execn = 0;
     int (*func)(int, char**);
     while (cursor != NULL) {
-        // Child
+        // Exec
         if ((cursor->pid = fork()) == 0) {
-            setup_files(cursor, pipes, execn);
+            setup_files(cursor, pipes, npipes, execn);
             // Builtin
-            if ((func = getbuiltin(cursor)) != NULL) {
+            if ((func = get_builtin(cursor->argv[0], NULL)) != NULL) {
                 (*func)(cursor->argc, cursor->argv);
             }
             // Exec
             else {
-                if (verify_exec(cursor)) {
-                    if(execvp(args_cursor->argv[0], args_cursor->argv)) {
+            //    if (verify_exec(cursor)) {
+                    if(execvp(cursor->argv[0], cursor->argv)) {
                         s_print(STDERR_FILENO, "%s: command not found\n", 1, 
-                        args_cursor->argv[0]);
+                        cursor->argv[0]);
                         exit(EXIT_SUCCESS);        
                     }
-                } 
+           //     } 
                 // Invalid exec
                 else {
                     s_print(STDERR_FILENO, "%s: command not found\n", 1, 
-                    args_cursor->argv[0]);
+                    cursor->argv[0]);
                     exit(EXIT_SUCCESS);
                 }
             } 
         } 
-        // Parent
-        else {
-
-        }
+        // // Job parent
+        // else {
+            
+        //     if (waitpid(pid, &status, 0) < 0) {
+        //         s_print(STDERR_FILENO, "waitpid error\n", 0);
+        //         errno = prev_errno;
+        //     }
+        // }
         ++execn;
+    }
+    
+    // Close all pipes
+    for (int i = 0; i < npipes; ++i) {
+        close(pipes[i]);
+    }
+
+    // Wait for all execs to die
+    int prev_errno = errno, status;
+    cursor = new_job->exec_head;
+    for (int i = 0; i < new_job->nexec; ++i) {
+        if (waitpid(cursor->pid, &status, 0) == -1) {
+            s_print(STDERR_FILENO, "waitpid error\n", 0);
+            errno = prev_errno;
+        }
     }
 }
 
@@ -493,7 +544,16 @@ void eval_cmd(char *input) {
     struct job *new_job;
 
     // Create job and and check for no command
-    if (parse_args(input, &new_job)) {
+    if (!make_job(input, &new_job)) {
+        return;
+    }
+
+    // Check if job is main process builtin
+    bool mproc;
+    int (*func)(int, char**) = get_builtin(new_job->exec_head->argv[0], &mproc);
+    if (func != NULL && mproc) {
+        (*func)(new_job->exec_head->argc, new_job->exec_head->argv);
+        free_job(new_job);
         return;
     }
 
@@ -503,154 +563,19 @@ void eval_cmd(char *input) {
     // Fork for job and start
     if ((new_job->pid = fork()) == 0) {
         start_job(new_job);
-    }
+        exit(EXIT_SUCCESS);
+    } 
 
     // Foreground: wait for job to end
     if (new_job->fg) {
         int status, prev_errno = errno;
-        waitpid(new_job->pid, &status, 0) < 0) {
+        if (waitpid(new_job->pid, &status, 0) == -1) {
             s_print(STDERR_FILENO, "waitpid error\n", 0);
             errno = prev_errno;
         }
-    }
+        
+    } 
 }
-
-//     // Create pipes for job
-//     int pipes[(nexec - 1) * 2], i;
-//     if (nexec > 1) {
-//         for (i = 0; i < nexec - 1; ++i) {
-//             if (pipe(pipes + (i * 2)) > 0) {
-//                 s_print(STDERR_FILENO, "Error creating pipes\n", 0);
-//             }
-//         }
-//     } else {
-//         pipes[0] = -1;
-//     }
-
-//     // Job - TODO
-
-
-//     // Builtin
-//     int (*func)(int, char**);
-//     if ((func = get_builtin(args_cursor->argv[0])) != NULL) {
-//         // Redirection
-//         if (args_cursor->desfd != -1) {
-//             // Child
-//             if ((pid = fork()) == 0) {
-//                 if (args_cursor->desfd != -1) {
-//                     dup2(args_cursor->desfd, STDOUT_FILENO);
-//                     close(args_cursor->desfd);
-//                 }
-//               (*func)(args_cursor->argc, args_cursor->argv);
-//               exit(0); 
-//             } 
-//             // Parent
-//             else {
-//                 // Close
-//                 if (args_cursor->srcfd != -1) {
-//                     close(args_cursor->srcfd);
-//                 }
-//                 if (args_cursor->desfd != -1) {
-//                     close(args_cursor->desfd);
-//                 }
-//                 int status;
-//                 if (waitpid(pid, &status, 0) < 0) {
-//                     s_print(STDERR_FILENO, "waitpid error\n", 0);
-//                 }
-//             } 
-//         } 
-//         // No Redirection
-//         else {
-//             (*func)(args_cursor->argc, args_cursor->argv);
-//         }
-//     }
-
-//     // Executable
-//     else {
-//         i = 0;
-//         while (args_cursor != NULL) {
-//             // Child
-//             if ((pid = fork()) == 0) {
-//                 // Pipes
-//                 if (pipes[0] != -1) {
-//                     if (i > 0 && i < (nexec - 1) << 1) {
-//                         dup2(pipes[i - 2], STDIN_FILENO);
-//                         dup2(pipes[i + 1], STDOUT_FILENO);
-//                         // close(pipes[i - 1]);
-//                         // close(pipes[i + 2]); // a:1, b:03, c:2
-//                     } else if (i == 0) {
-//                         dup2(pipes[1], STDOUT_FILENO);
-//                         // close(pipes[1]); 
-//                     } else {
-//                         dup2(pipes[((nexec - 1) * 2) - 2], STDIN_FILENO);
-//                         // close(pipes[((nexec - 1) * 2) - 2]);
-//                     }
-//                     for (int j = 0; j < (nexec - 1) * 2; ++j) {
-//                         close(pipes[j]);
-//                     }
-//                 }
-//                 // Non-Pipes
-//                 if (args_cursor->srcfd != -1) {
-//                     dup2(args_cursor->srcfd, STDIN_FILENO);
-//                     close(args_cursor->srcfd);
-//                 }
-//                 if (args_cursor->desfd != -1) {
-//                     dup2(args_cursor->desfd, STDOUT_FILENO);
-//                     close(args_cursor->desfd);
-//                 }
-//                 // Execute
-//                 if (execvp(args_cursor->argv[0], args_cursor->argv)) {
-//                     // Invalid
-//                     s_print(STDERR_FILENO, "%s: command not found\n", 1, 
-//                         args_cursor->argv[0]);
-//                     exit(EXIT_SUCCESS);
-//                 }        
-//             } 
-//             // Parent
-//             else {
-//                 // Close pipe if needed
-//                 if (pipes[0] != -1) {
-//                     if (i > 0 && i < (nexec - 1) << 1) {
-//                         close(pipes[i - 2]);
-//                         close(pipes[i + 1]);
-//                     } else if (i == 0) {
-//                         close(pipes[1]);
-//                     } else {
-//                         close(pipes[((nexec - 1) * 2) - 2]);
-//                     }
-//                 }
-            
-//                 // Foreground
-//                 if (args_cursor->fg) {
-//                     int status, prev_errno = errno;
-//                     if (waitpid(pid, &status, 0) < 0) {
-//                         s_print(STDERR_FILENO, "waitpid error\n", 0);
-//                         errno = prev_errno;
-//                     }
-//                 } 
-//                 // Background
-//                 else {
-//                     s_print(STDOUT_FILENO, "%d: %s\n", 2, pid, input);
-//                 }
-//             }
-//             args_cursor = args_cursor->next;
-//             i += 2;
-//         }
-//         // Close all redirection files
-//         args_cursor = args_head;
-//         while (args_cursor != NULL) {
-//             if (args_cursor->srcfd != -1) {
-//                 close(args_cursor->srcfd);
-//             }
-//             if (args_cursor->desfd != -1) {
-//                 close(args_cursor->srcfd);
-//             }
-//             args_cursor = args_cursor->next;
-//         }
-//     }
-
-//     free_args(args_head);
-// }
 
 void sigint_handler(int sig) {
     int prev_errno = errno;
@@ -717,8 +642,20 @@ int main(int argc, char** argv) {
     // set_handlers();
 
     char *test2 = calloc(100, 1);
-    strcpy(test2, "grep - < hello | cowsay | grep ^ | cowsay > madness");
+    strcpy(test2, "");
     eval_cmd(test2);
+
+    char *test1 = calloc(100, 1);
+    strcpy(test1, "ls");
+    eval_cmd(test1);
+
+    char *test3 = calloc(100, 1);
+    strcpy(test3, "");
+    eval_cmd(test3);
+
+    char *test4 = calloc(100, 1);
+    strcpy(test4, "");
+    eval_cmd(test4);
 
     // char *test = calloc(20, 1); grep - < hello | cowsay | grep ^ | cowsay > madness
     // strcpy(test, "cd ..");
