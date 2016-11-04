@@ -364,12 +364,18 @@ int make_job(char *input, struct job **new_job) {
             cursor->next = calloc(1, sizeof(struct exec));
             cursor = cursor->next;
         }
-        cursor->srcfd = cursor->desfd = -1;
+        cursor->srcfd = cursor->desfd = cursor->errfd = -1;
         ++(*new_job)->nexec;
         
         // Fill new args
         if (make_args(exec_str, &cursor->argc, cursor->argv) == false) {
             (*new_job)->fg = false;
+        }
+
+        // Check again for no real input
+        if (cursor->argv[0] == NULL) {
+            free_job(*new_job);
+            return 0;
         }
         
         // Check for redirection, consume from args
@@ -427,7 +433,7 @@ void setup_files(struct exec *exec, int *pipes, int npipes, int execn) {
     }
     // Pipe
     int pipeind = execn << 1;
-    if (pipeind < npipes - 2) {
+    if (pipeind <= npipes - 2) {
         dup2(pipes[pipeind + 1], STDOUT_FILENO);
         close(pipes[pipeind + 1]);
     }
@@ -462,7 +468,7 @@ void add_job(struct job *new_job) {
 }
 
 void remove_job(struct job *dead_job) {
-    struct job *cursor = jobs_head, *prev;
+    struct job *cursor = jobs_head, *prev = NULL;
     while (cursor != dead_job) {
         prev = cursor;
         cursor = cursor->next; 
@@ -480,7 +486,7 @@ void start_job(struct job *new_job) {
 
     // Make pipes
     int npipes = (new_job->nexec - 1) << 1, *pipes = calloc(npipes, sizeof(int));
-    for (int i = 0; i < npipes << 2; ++i) {
+    for (int i = 0; i < npipes; i += 2) {
         if (pipe(pipes + (i * 2)) > 0) {
             s_print(STDERR_FILENO, "Error creating pipes\n", 0);             }
     }
@@ -521,6 +527,7 @@ void start_job(struct job *new_job) {
         //         errno = prev_errno;
         //     }
         // }
+        cursor = cursor->next;
         ++execn;
     }
     
@@ -573,7 +580,7 @@ void eval_cmd(char *input) {
             s_print(STDERR_FILENO, "waitpid error\n", 0);
             errno = prev_errno;
         }
-        
+        remove_job(new_job);
     } 
 }
 
@@ -641,21 +648,21 @@ int main(int argc, char** argv) {
     // Set sig handlers
     // set_handlers();
 
-    char *test2 = calloc(100, 1);
-    strcpy(test2, "");
-    eval_cmd(test2);
+    // char *test2 = calloc(100, 1);
+    // strcpy(test2, "cd ../src");
+    // eval_cmd(test2);
 
     char *test1 = calloc(100, 1);
-    strcpy(test1, "ls");
+    strcpy(test1, "grep - < test | cowsay | grep ^ | cowsay > madness");
     eval_cmd(test1);
 
-    char *test3 = calloc(100, 1);
-    strcpy(test3, "");
-    eval_cmd(test3);
+    // char *test3 = calloc(100, 1);
+    // strcpy(test3, "");
+    // eval_cmd(test3);
 
-    char *test4 = calloc(100, 1);
-    strcpy(test4, "");
-    eval_cmd(test4);
+    // char *test4 = calloc(100, 1);
+    // strcpy(test4, "");
+    // eval_cmd(test4);
 
     // char *test = calloc(20, 1); grep - < hello | cowsay | grep ^ | cowsay > madness
     // strcpy(test, "cd ..");
@@ -673,7 +680,6 @@ int main(int argc, char** argv) {
     while((cmd = readline(prompt)) != NULL) {
         eval_cmd(cmd);
         make_prompt(prompt);
-        free(cmd);
     }
 
     //Don't forget to free allocated memory, and close file descriptors.
