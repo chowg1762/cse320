@@ -292,7 +292,7 @@ void free_job(struct job *done_job) {
     free(done_job);
 }
 
-int make_args(char *cmd, int *argc, char **argv) {
+bool make_args(char *cmd, int *argc, char **argv) {
     *argc = 0;
     char cmd_cpy[strlen(cmd) + 1], *arg, *argsec;
     strcpy(cmd_cpy, cmd);
@@ -327,9 +327,9 @@ int make_args(char *cmd, int *argc, char **argv) {
     
     // Check for background flag
     if (*argc != 0 && strstr(argv[*argc - 1], "&") != NULL) {
-        return 0;
+        return false;
     }
-    return 1;
+    return true;
 }
 
 int make_job(char *input, struct job **new_job) {
@@ -435,11 +435,12 @@ void setup_files(struct exec *exec, int *pipes, int npipes, int execn) {
     int pipeind = execn << 1;
     if (pipeind <= npipes - 2) {
         dup2(pipes[pipeind + 1], STDOUT_FILENO);
-        close(pipes[pipeind + 1]);
     }
     if (pipeind > 0) {
         dup2(pipes[pipeind - 2], STDIN_FILENO);
-        close(pipes[pipeind - 2]);
+    }
+    for (int i = 0; i < npipes; ++i) {
+        close(pipes[i]);
     }
 }
 
@@ -582,6 +583,8 @@ void eval_cmd(char *input) {
         }
         remove_job(new_job);
     } 
+
+    printf("haha yo %d\n", new_job->fg);
 }
 
 void sigint_handler(int sig) {
