@@ -488,7 +488,7 @@ void start_job(struct job *new_job) {
     // Make pipes
     int npipes = (new_job->nexec - 1) << 1, *pipes = calloc(npipes, sizeof(int));
     for (int i = 0; i < npipes; i += 2) {
-        if (pipe(pipes + (i * 2)) > 0) {
+        if (pipe(pipes + i) > 0) {
             s_print(STDERR_FILENO, "Error creating pipes\n", 0);             }
     }
 
@@ -520,32 +520,42 @@ void start_job(struct job *new_job) {
                 }
             } 
         } 
-        // // Job parent
-        // else {
-            
-        //     if (waitpid(pid, &status, 0) < 0) {
-        //         s_print(STDERR_FILENO, "waitpid error\n", 0);
-        //         errno = prev_errno;
-        //     }
-        // }
+        // Job parent
+        else {
+            // Close used pipes
+            if (pipes[0] != -1) {
+                int pipeind = execn << 1;
+                if (pipeind <= npipes - 2) {
+                    close(pipes[pipeind + 1]);
+                }
+                if (pipeind > 0) {
+                    close(pipes[pipeind - 2]);
+                }
+            }
+            int status, prev_errno = errno;
+            if (waitpid(cursor->    pid, &status, 0) < 0) {
+                 s_print(STDERR_FILENO, "waitpid error\n", 0);
+                 errno = prev_errno;
+             }
+         }
         cursor = cursor->next;
         ++execn;
     }
     
-    // Close all pipes
-    for (int i = 0; i < npipes; ++i) {
-        close(pipes[i]);
-    }
+    // // Close all pipes
+    // for (int i = 0; i < npipes; ++i) {
+    //     close(pipes[i]);
+    // }
 
-    // Wait for all execs to die
-    int prev_errno = errno, status;
-    cursor = new_job->exec_head;
-    for (int i = 0; i < new_job->nexec; ++i) {
-        if (waitpid(cursor->pid, &status, 0) == -1) {
-            s_print(STDERR_FILENO, "waitpid error\n", 0);
-            errno = prev_errno;
-        }
-    }
+    // // Wait for all execs to die
+    // int prev_errno = errno, status;
+    // cursor = new_job->exec_head;
+    // for (int i = 0; i < new_job->nexec; ++i) {
+    //     if (waitpid(cursor->pid, &status, 0) == -1) {
+    //         s_print(STDERR_FILENO, "waitpid error\n", 0);
+    //         errno = prev_errno;
+    //     }
+    // }
 }
 
 void eval_cmd(char *input) {
@@ -583,8 +593,6 @@ void eval_cmd(char *input) {
         }
         remove_job(new_job);
     } 
-
-    printf("haha yo %d\n", new_job->fg);
 }
 
 void sigint_handler(int sig) {
@@ -655,9 +663,9 @@ int main(int argc, char** argv) {
     // strcpy(test2, "cd ../src");
     // eval_cmd(test2);
 
-    char *test1 = calloc(100, 1);
-    strcpy(test1, "grep - < test | cowsay | grep ^ | cowsay > madness");
-    eval_cmd(test1);
+    // char *test1 = calloc(100, 1);
+    // strcpy(test1, "ls | grep b | grep i | cowsay");
+    // eval_cmd(test1);
 
     // char *test3 = calloc(100, 1);
     // strcpy(test3, "");
@@ -667,7 +675,7 @@ int main(int argc, char** argv) {
     // strcpy(test4, "");
     // eval_cmd(test4);
 
-    // char *test = calloc(20, 1); grep - < hello | cowsay | grep ^ | cowsay > madness
+    // char *test = calloc(20, 1); //grep - < hello | cowsay | grep ^ | cowsay > madness
     // strcpy(test, "cd ..");
     // eval_cmd(test);
 
