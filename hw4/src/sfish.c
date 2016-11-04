@@ -239,6 +239,22 @@ void* get_builtin(char *cmd, bool *mproc) {
         *mp = true;
         return &sf_chclr;
     }
+    if (strcmp(cmd, "jobs") == 0) {
+        *mp = false;
+        return &print_jobs;
+    }
+    if (strcmp(cmd, "bg") == 0) {
+        *mp = true;
+        return &sf_bg;
+    }
+    if (strcmp(cmd, "kill") == 0) {
+        *mp = true;
+        return &sf_kill;
+    }
+    if (strcmp(cmd, "disown") == 0) {
+        *mp = true;
+        return &sf_disown;
+    }
     return NULL;
 }
 
@@ -326,7 +342,17 @@ bool make_args(char *cmd, int *argc, char **argv) {
     }
     
     // Check for background flag
-    if (*argc != 0 && strstr(argv[*argc - 1], "&") != NULL) {
+    if (*argc != 0) {
+        int amperloc = strlen(argv[*argc - 1]) - 1;
+        if (strcmp(argv[*argc - 1], "&") == 0) {
+            --(*argc);
+            free(argv[*argc]);
+            argv[*argc] = NULL;
+        } else if (argv[*argc - 1][amperloc] == '&') {
+            argv[*argc - 1][amperloc] = '\0';
+        } else {
+            return true;
+        }
         return false;
     }
     return true;
@@ -468,6 +494,14 @@ void add_job(struct job *new_job) {
     }
 }
 
+struct job* find_job(pid_t pid) {
+    struct job *cursor = jobs_head;
+    while (cursor->pid != pid) {
+        cursor = cursor->next;
+    }
+    return cursor;
+}
+
 void remove_job(struct job *dead_job) {
     struct job *cursor = jobs_head, *prev = NULL;
     while (cursor != dead_job) {
@@ -590,9 +624,20 @@ void eval_cmd(char *input) {
         if (waitpid(new_job->pid, &status, 0) == -1) {
             s_print(STDERR_FILENO, "waitpid error\n", 0);
             errno = prev_errno;
+        } 
+        // Reap was successful: remove job from list
+        else {
+            remove_job(new_job);
         }
-        remove_job(new_job);
     } 
+}
+
+void storepid_handler(int sig) {
+
+}
+
+void getpid_handler(int sig) {
+
 }
 
 void sigint_handler(int sig) {
@@ -632,9 +677,11 @@ void sigchld_handler(int sig) {
     sigprocmask(SIG_BLOCK, &chld_mask, &prev_mask);
 
     // Reap all dead children
+    struct job *dead_job;
     while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
-        // Remove pid from job list
-        // remove_job(pid);
+        // Remove dead job from job list
+        dead_job = find_job(pid);
+        remove_job(dead_job);
         printf("HEIM %d\n", pid);
     }
 
@@ -664,7 +711,7 @@ int main(int argc, char** argv) {
     // eval_cmd(test2);
 
     // char *test1 = calloc(100, 1);
-    // strcpy(test1, "ls | grep b | grep i | cowsay");
+    // strcpy(test1, "ls&");
     // eval_cmd(test1);
 
     // char *test3 = calloc(100, 1);
