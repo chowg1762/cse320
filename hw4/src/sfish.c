@@ -319,7 +319,7 @@ void make_prompt(char* prompt) {
     }
 
     // Add user and/or machine
-    if (user_tag) {
+    if (user_tag) { 
         var_cat(prompt, 4, "-", user_color, user, CLOSE_TAG);
         if (mach_tag) {
             var_cat(prompt, 5, "@", machine_color, machine, CLOSE_TAG, ":");
@@ -351,6 +351,40 @@ void free_job(struct job *done_job) {
     }
     free(done_job->cmd);
     free(done_job);
+}
+
+bool check_exec(char *exec) {
+    if (get_builtin(exec, NULL) != NULL) {
+        return true;
+    }
+    bool valid = false;
+    char *path_buf = calloc(PWD_SIZE, sizeof(char));
+    struct stat stats;
+    // Direct location
+    if (strstr(exec, "/") != NULL) {
+        var_cat(path_buf, 3, pwd, "/", exec);
+        if (stat(path_buf, &stats) == -1) {
+            valid = true;
+        }
+    }
+
+    // Unspecified location
+    else {
+        char path_list[PWD_SIZE], *path_ptr = path_list, *cur_dir;
+        strcpy(path_list, getenv("PATH"));
+        while ((cur_dir = strsep(&path_ptr, ":")) != NULL) {
+            var_cat(path_buf, 3, cur_dir, "/", exec);  
+            if (stat(path_buf, &stats) != -1) {
+                valid = true;
+            }
+            memset(path_buf, 0, PWD_SIZE);
+        }
+    }
+    free(path_buf);
+    if (!valid) {
+        s_print(STDERR_FILENO, "No command '%s' found\n", 1, exec);
+    }
+    return valid;
 }
 
 bool make_args(char *cmd, int *argc, char **argv) {
@@ -443,8 +477,8 @@ int make_job(char *input, struct job **new_job) {
             (*new_job)->fg = false;
         }
 
-        // Check again for no real input
-        if (cursor->argv[0] == NULL) {
+        // Check again for bad input
+        if (cursor->argv[0] == NULL || check_exec(cursor->argv[0]) == false) {
             free_job(*new_job);
             return 0;
         }
@@ -582,7 +616,12 @@ void start_job(struct job *new_job) {
         // Exec
         if ((cursor->pid = fork()) == 0) {
             // Set parent watchers
-            //prctl
+            if (prctl(PR_SET_PDEATHSIG, SIGTERM) == -1)
+                exit(EXIT_FAILURE);
+            // if (getppid() != new_job->pid) {
+            //     printf("parent: %d | job: %d\n", getppid(), new_job->pid);
+            //     exit(EXIT_SUCCESS);
+            // }
             // Set redirection
             setup_files(cursor, pipes, npipes, execn);
             // Builtin
@@ -592,13 +631,11 @@ void start_job(struct job *new_job) {
             }
             // Exec
             else {
-            //    if (verify_exec(cursor)) {
-                    if(execvp(cursor->argv[0], cursor->argv)) {
-                        s_print(STDERR_FILENO, "%s: command not found\n", 1, 
-                        cursor->argv[0]);
-                        exit(EXIT_SUCCESS);        
-                    }
-           //     } 
+                if(execvp(cursor->argv[0], cursor->argv)) {
+                    s_print(STDERR_FILENO, "%s: command not found\n", 1, 
+                    cursor->argv[0]);
+                    exit(EXIT_SUCCESS);        
+                }
                 // Invalid exec
                 else {
                     s_print(STDERR_FILENO, "%s: command not found\n", 1, 
@@ -744,7 +781,7 @@ int main(int argc, char** argv) {
     // set_handlers();
 
     char *test2 = calloc(100, 1);
-    strcpy(test2, "pwd | grep D");
+    strcpy(test2, "ls");
     eval_cmd(test2);
 
     // char *test1 = calloc(100, 1);
