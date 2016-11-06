@@ -3,6 +3,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <linux/prctl.h>
 #include <readline/readline.h>
 #include <readline/history.h>
 #include <signal.h>

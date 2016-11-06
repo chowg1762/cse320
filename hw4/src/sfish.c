@@ -48,7 +48,21 @@ void s_print(int fd, const char *format, int nvar, ...) {
             // Concat substring up to '%'
             strncat(str, (format + i - j), j);
             // Concat var
-            strcat(str, va_arg(vars, const char*));
+            if (format[i + 1] == 's')
+                strcat(str, va_arg(vars, const char*));
+            else {
+                int num = va_arg(vars, int), numcpy = num, numlen;
+                while (numcpy != 0) {
+                    numcpy /= 10;
+                    ++numlen;
+                }
+                char numstr[numlen];
+                while (num != 0) {
+                    numstr[--numlen] = num % 10 + '0';
+                    num /= 10;
+                }
+                strcat(str, numstr);
+            }
             ++i;
             j = 0;
         } else {
@@ -207,10 +221,41 @@ int sf_chclr(int argc, char **argv) {
     return 0;
 }
 
+void print_jobs(int argc, char **argv) {
+    struct job *cursor = jobs_head;
+    while (cursor != NULL) {
+        s_print(STDOUT_FILENO, "[%d]    %s    %d    %s\n", 4, 
+        cursor->jid, cursor->status, cursor->pid, cursor->cmd);
+        cursor = cursor->next;
+    }
+}
+
+// void sf_bg(int argc, char **argv) {
+//     if (argc != 2) {
+//         s_print("bg: Invalid input\n");
+//         return;
+//     }
+//     int jobind = atoi(argv)
+//     pid_t job = get_job();
+//     kill()
+// }
+
+// void sf_kill(int argc, char **argv) {
+
+// }
+
+// void sf_disown(int argc, char **argv) {
+
+// }
+
 void* get_builtin(char *cmd, bool *mproc) {
     bool *mp;
     if (mproc != NULL)
         mp = mproc;
+    else {
+        bool mpro;
+        mp = &mpro;
+    }
     if (strcmp(cmd, "help") == 0) {
         *mp = false; 
         return &sf_help;
@@ -243,18 +288,18 @@ void* get_builtin(char *cmd, bool *mproc) {
         *mp = false;
         return &print_jobs;
     }
-    if (strcmp(cmd, "bg") == 0) {
-        *mp = true;
-        return &sf_bg;
-    }
-    if (strcmp(cmd, "kill") == 0) {
-        *mp = true;
-        return &sf_kill;
-    }
-    if (strcmp(cmd, "disown") == 0) {
-        *mp = true;
-        return &sf_disown;
-    }
+    // if (strcmp(cmd, "bg") == 0) {
+    //     *mp = true;
+    //     return &sf_bg;
+    // }
+    // if (strcmp(cmd, "kill") == 0) {
+    //     *mp = true;
+    //     return &sf_kill;
+    // }
+    // if (strcmp(cmd, "disown") == 0) {
+    //     *mp = true;
+    //     return &sf_disown;
+    // }
     return NULL;
 }
 
@@ -486,6 +531,8 @@ void add_job(struct job *new_job) {
                 return;
             }
             prev_job = cursor;
+            if (cursor->next == NULL)
+                break;
             cursor = cursor->next;
         }
         if (new_job->jid == 0) {
@@ -495,10 +542,12 @@ void add_job(struct job *new_job) {
 }
 
 struct job* find_job(pid_t pid) {
+    printf("pid: %d\n", pid);
     struct job *cursor = jobs_head;
     while (cursor->pid != pid) {
         cursor = cursor->next;
     }
+    printf("found job: %s\n", cursor->exec_head->argv[0]);
     return cursor;
 }
 
@@ -532,10 +581,14 @@ void start_job(struct job *new_job) {
     while (cursor != NULL) {
         // Exec
         if ((cursor->pid = fork()) == 0) {
+            // Set parent watchers
+            //prctl
+            // Set redirection
             setup_files(cursor, pipes, npipes, execn);
             // Builtin
             if ((func = get_builtin(cursor->argv[0], NULL)) != NULL) {
                 (*func)(cursor->argc, cursor->argv);
+                exit(EXIT_SUCCESS);
             }
             // Exec
             else {
@@ -575,21 +628,6 @@ void start_job(struct job *new_job) {
         cursor = cursor->next;
         ++execn;
     }
-    
-    // // Close all pipes
-    // for (int i = 0; i < npipes; ++i) {
-    //     close(pipes[i]);
-    // }
-
-    // // Wait for all execs to die
-    // int prev_errno = errno, status;
-    // cursor = new_job->exec_head;
-    // for (int i = 0; i < new_job->nexec; ++i) {
-    //     if (waitpid(cursor->pid, &status, 0) == -1) {
-    //         s_print(STDERR_FILENO, "waitpid error\n", 0);
-    //         errno = prev_errno;
-    //     }
-    // }
 }
 
 void eval_cmd(char *input) {
@@ -663,13 +701,12 @@ void sigchld_handler(int sig) {
     sigset_t chld_mask, prev_mask;
     pid_t pid;
 
-    // // Check if responsible child is background
-    // struct job *job_cursor = job_head;
-    // while (job_cursor != NULL) {
-    //     if (job_cursor->fg)
-    //         return;
-    //     job_cursor = job_cursor->next;
-    // }
+    // Check if responsible child is background
+    struct job *job_cursor = jobs_head;
+    while (job_cursor != NULL) {
+        printf("%d: %s\n", job_cursor->pid, job_cursor->exec_head->argv[0]);
+        job_cursor = job_cursor->next;
+    }
     
     // Block sigchld
     sigemptyset(&chld_mask);
@@ -682,7 +719,7 @@ void sigchld_handler(int sig) {
         // Remove dead job from job list
         dead_job = find_job(pid);
         remove_job(dead_job);
-        printf("HEIM %d\n", pid);
+        printf("reaped %d\n", pid);
     }
 
     // Unblock sigchld
@@ -706,20 +743,20 @@ int main(int argc, char** argv) {
     // Set sig handlers
     // set_handlers();
 
-    // char *test2 = calloc(100, 1);
-    // strcpy(test2, "cd ../src");
-    // eval_cmd(test2);
+    char *test2 = calloc(100, 1);
+    strcpy(test2, "pwd | grep D");
+    eval_cmd(test2);
 
     // char *test1 = calloc(100, 1);
-    // strcpy(test1, "ls&");
+    // strcpy(test1, "cd ../testexecs");
     // eval_cmd(test1);
 
     // char *test3 = calloc(100, 1);
-    // strcpy(test3, "");
+    // strcpy(test3, "./infinite &");
     // eval_cmd(test3);
 
     // char *test4 = calloc(100, 1);
-    // strcpy(test4, "");
+    // strcpy(test4, "ls");
     // eval_cmd(test4);
 
     // char *test = calloc(20, 1); //grep - < hello | cowsay | grep ^ | cowsay > madness
