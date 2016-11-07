@@ -10,6 +10,7 @@
 struct job *jobs_head;
 char last_dir[256];
 int last_return;
+int cmd_count;
 
 // Prompt settings
 char *user;
@@ -222,25 +223,88 @@ int sf_chclr(int argc, char **argv) {
     return 0;
 }
 
-// void sf_bg(int argc, char **argv) {
-//     if (argc != 2) {
-//         s_print("bg: Invalid input\n");
-//         return;
-//     }
-//     int jobind = atoi(argv)
-//     pid_t job = get_job();
-//     kill()
-// }
-
 // void sf_kill(int argc, char **argv) {
 
 // }
 
-// void sf_disown(int argc, char **argv) {
+void free_job(struct job *done_job) {
+    struct exec *cursor = done_job->exec_head, *temp;
+    int i;
+    while (cursor != NULL) {
+        for (i = 0; i < MAX_ARGS; ++i) {
+            if (cursor->argv[i] == NULL)
+                break;
+            free(cursor->argv[i]);
+        }
+        temp = cursor->next;
+        free(cursor);
+        cursor = temp;
+    }
+    free(done_job->cmd);
+    free(done_job);
+}
 
-// }
+void add_job(struct job *new_job) {
+    struct job *cursor = jobs_head, *prev_job = NULL;
+    // Find lowest available jid
+    if (cursor == NULL || cursor->jid > 1) {
+        new_job->jid = 1;
+        new_job->next = jobs_head;
+        jobs_head = new_job;
+    } else {
+        while (cursor != NULL) {
+            if (prev_job != NULL && cursor->jid > prev_job->jid + 1) {
+                new_job->jid = prev_job->jid + 1;
+                prev_job->next = new_job;
+                new_job->next = cursor;
+                return;
+            }
+            prev_job = cursor;
+            if (cursor->next == NULL) {
+                cursor->next = new_job;
+                new_job->next = NULL;
+                break;
+            }
+            cursor = cursor->next;
+        }
+        if (new_job->jid == 0) {
+            new_job->jid = cursor->jid + 1;
+        }
+    }
+}
 
-void print_jobs(int argc, char **argv) {
+struct job* find_job(pid_t pid, bool jid) {
+    if (pid < 1)
+        return NULL;
+    struct job *cursor = jobs_head;
+    while (cursor != NULL) {
+        if (jid && cursor->jid == pid) {
+            break;
+        } else if (!jid && cursor->pid == pid) {
+            break;
+        }
+        cursor = cursor->next;
+    }
+    return cursor;
+}
+
+void remove_job(struct job *dead_job) {
+    struct job *cursor = jobs_head, *prev = NULL;
+    if (dead_job == NULL)
+        return;
+    while (cursor != dead_job) {
+        prev = cursor;
+        cursor = cursor->next; 
+    }
+    if (prev != NULL) {
+        prev->next = cursor->next;
+    } else {
+        jobs_head = cursor->next;
+    }
+    free_job(dead_job);
+}   
+
+int print_jobs(int argc, char **argv) {
     struct job *cursor = jobs_head;
     while (cursor != NULL) {
         if (strcmp(cursor->exec_head->argv[0], "jobs") != 0) {
@@ -249,6 +313,81 @@ void print_jobs(int argc, char **argv) {
         }
         cursor = cursor->next;
     }
+    return 1;
+}
+
+int sf_fg(int argc, char **argv) {
+    if (argc != 2)
+        return 1;
+    // JID
+    pid_t jpid;
+    struct job *new_fg;
+    if (strncmp(argv[1], "%", 1) == 0) {
+        jpid = atoi(argv[1] + 1);
+        new_fg = find_job(jpid, true);
+    }
+    // PID
+    else {
+        jpid = atoi(argv[1]);
+        new_fg = find_job(jpid, false);
+    }
+    if (new_fg == NULL)
+        return 1;
+    int status;
+    if (waitpid(new_fg->pid, &status, 0) < 0) {
+        s_print(STDERR_FILENO, "waitpid error\n", 0);
+    }
+    return 0;
+}
+
+int sf_bg(int argc, char **argv) {
+    if (argc != 2)
+        return 1;
+    struct job *res_job;
+    pid_t jpid; 
+    if (strncmp(argv[1], "%", 1) == 0) {
+        jpid = atoi(argv[1] + 1);
+        res_job = find_job(jpid, true);
+    }
+    // PID
+    else {
+        jpid = atoi(argv[1]);
+        res_job = find_job(jpid, false);
+    }
+    if (res_job == NULL) {
+        return 1;
+    }
+    kill(res_job->pid, SIGCONT);
+    return 0;
+}
+
+int sf_disown(int argc, char **argv) {
+    if (argc > 2) {
+        s_print(STDERR_FILENO, "disown: invalid input\n", 0);
+        return 1;
+    }
+    struct job *cursor = jobs_head;
+    pid_t jpid;
+    if (argv[1] == NULL) {
+        while (cursor != NULL) {
+            remove_job(cursor);
+            cursor = cursor->next;
+        }
+    } 
+    // JID
+    if (strncmp(argv[1], "%", 1) == 0) {
+        jpid = atoi(argv[1] + 1);
+        cursor = find_job(jpid, true);
+    }
+    // PID 
+    else {
+        jpid = atoi(argv[1]);
+        cursor = find_job(jpid, false);
+    }
+    if (cursor == NULL)
+        return 1;
+    remove_job(cursor);
+    return 0;
 }
 
 void* get_builtin(char *cmd, bool *mproc) {
@@ -291,18 +430,18 @@ void* get_builtin(char *cmd, bool *mproc) {
         *mp = false;
         return &print_jobs;
     }
-    // if (strcmp(cmd, "bg") == 0) {
-    //     *mp = true;
-    //     return &sf_bg;
-    // }
+    if (strcmp(cmd, "fg") == 0) {
+        *mp = true;
+        return &sf_fg;
+    }
     // if (strcmp(cmd, "kill") == 0) {
     //     *mp = true;
     //     return &sf_kill;
     // }
-    // if (strcmp(cmd, "disown") == 0) {
-    //     *mp = true;
-    //     return &sf_disown;
-    // }
+    if (strcmp(cmd, "disown") == 0) {
+        *mp = true;
+        return &sf_disown;
+    }
     return NULL;
 }
 
@@ -337,23 +476,6 @@ void make_prompt(char* prompt) {
 
     // Add pwd
     var_cat(prompt, 3, "[", pwd, "]>");
-}
-
-void free_job(struct job *done_job) {
-    struct exec *cursor = done_job->exec_head, *temp;
-    int i;
-    while (cursor != NULL) {
-        for (i = 0; i < MAX_ARGS; ++i) {
-            if (cursor->argv[i] == NULL)
-                break;
-            free(cursor->argv[i]);
-        }
-        temp = cursor->next;
-        free(cursor);
-        cursor = temp;
-    }
-    free(done_job->cmd);
-    free(done_job);
 }
 
 bool check_exec(char *exec) {
@@ -553,57 +675,6 @@ void setup_files(struct exec *exec, int *pipes, int npipes, int execn) {
     }
 }
 
-void add_job(struct job *new_job) {
-    struct job *cursor = jobs_head, *prev_job = NULL;
-    // Find lowest available jid
-    if (cursor == NULL || cursor->jid > 1) {
-        new_job->jid = 1;
-        new_job->next = jobs_head;
-        jobs_head = new_job;
-    } else {
-        while (cursor != NULL) {
-            if (prev_job != NULL && cursor->jid > prev_job->jid + 1) {
-                new_job->jid = prev_job->jid + 1;
-                prev_job->next = new_job;
-                new_job->next = cursor;
-                return;
-            }
-            prev_job = cursor;
-            if (cursor->next == NULL) {
-                cursor->next = new_job;
-                new_job->next = NULL;
-                break;
-            }
-            cursor = cursor->next;
-        }
-        if (new_job->jid == 0) {
-            new_job->jid = cursor->jid + 1;
-        }
-    }
-}
-
-struct job* find_job(pid_t pid) {
-    struct job *cursor = jobs_head;
-    while (cursor->pid != pid) {
-        cursor = cursor->next;
-    }
-    return cursor;
-}
-
-void remove_job(struct job *dead_job) {
-    struct job *cursor = jobs_head, *prev = NULL;
-    while (cursor != dead_job) {
-        prev = cursor;
-        cursor = cursor->next; 
-    }
-    if (prev != NULL) {
-        prev->next = cursor->next;
-    } else {
-        jobs_head = cursor->next;
-    }
-    free_job(dead_job);
-}   
-
 void start_job(struct job *new_job) {
     struct exec *cursor = new_job->exec_head;
 
@@ -755,7 +826,7 @@ void sigchld_handler(int sig) {
     struct job *dead_job;
     while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
         // Remove dead job from job list
-        dead_job = find_job(pid);
+        dead_job = find_job(pid, false);
         remove_job(dead_job);
     }
 
@@ -788,25 +859,41 @@ int main(int argc, char** argv) {
     strcpy(test1, "./sleepy&");
     eval_cmd(test1);
 
+    char *test7 = calloc(100, 1);
+    strcpy(test7, "./sleepy&");
+    eval_cmd(test7);
+
+    char *test10 = calloc(100, 1);
+    strcpy(test10, "./sleepy&");
+    eval_cmd(test10);
+
+    char *test78 = calloc(100, 1);
+    strcpy(test78, "./sleepy&");
+    eval_cmd(test78);
+
+    char *test53 = calloc(20, 1);
+    strcpy(test53, "jobs");
+    eval_cmd(test53);
+
     char *test3 = calloc(100, 1);
-    strcpy(test3, "ls&");
+    strcpy(test3, "disown 1");
     eval_cmd(test3);
 
+    char *test5 = calloc(20, 1);
+    strcpy(test5, "jobs");
+    eval_cmd(test5);
+
     char *test4 = calloc(100, 1);
-    strcpy(test4, "jobs");
+    strcpy(test4, "disown %2");
     eval_cmd(test4);
+
+    char *test6 = calloc(20, 1);
+    strcpy(test6, "jobs");
+    eval_cmd(test6);
 
     // char *test = calloc(20, 1); //grep - < hello | cowsay | grep ^ | cowsay > madness
     // strcpy(test, "cd ..");
     // eval_cmd(test);
-
-    // char *test3 = calloc(20, 1);
-    // strcpy(test3, "ls");
-    // eval_cmd(test3);
-
-    // char *test4 = calloc(20, 1);
-    // strcpy(test4, "cd ..");
-    // eval_cmd(test4);
 
     char *cmd;
     while((cmd = readline(prompt)) != NULL) {
