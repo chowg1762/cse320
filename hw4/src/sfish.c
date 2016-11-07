@@ -11,6 +11,7 @@ struct job *jobs_head;
 char last_dir[256];
 int last_return;
 int cmd_count;
+pid_t stored_pid;
 
 // Prompt settings
 char *user;
@@ -97,6 +98,22 @@ void update_pwd() {
 
 int sf_help(int argc, char **argv) {
     // Print help menu
+    rl_on_new_line();
+    s_print(STDOUT_FILENO, HELP_MENU, 0);
+    return 0;
+}
+
+int sf_info(int argc, char **argv) {
+    // Print info menu
+    rl_on_new_line();
+    s_print(STDOUT_FILENO, INFO_MENU, 0);
+    s_print(STDOUT_FILENO, "%d\n----Process Table----\n\
+    PGID    PID    TIME     CMD\n", 1, cmd_count);
+    struct job *cursor = jobs_head;
+    while (cursor != NULL) {
+        s_print(STDOUT_FILENO, "%d %d %d   %s\n", 4, cursor->pid, cursor->pid,
+        cursor->time, cursor->cmd);
+    }
     return 0;
 }
 
@@ -316,6 +333,35 @@ int print_jobs(int argc, char **argv) {
     return 1;
 }
 
+int sf_kill(int argc, char **argv) {
+    if (argc < 2)
+        return 1;
+    struct job *res_job;
+    pid_t jpid; 
+    int signal;
+    // JID
+    if (strncmp(argv[1], "%", 1) == 0) {
+        jpid = atoi(argv[1] + 1);
+        res_job = find_job(jpid, true);
+    }
+    // PID
+    else {
+        jpid = atoi(argv[1]);
+        res_job = find_job(jpid, false);
+    }
+    if (res_job == NULL)
+        return 1;
+    // Get signal
+    if (argc == 2)
+        signal = 15;
+    else 
+        signal = atoi(argv[2]);
+    if (signal < 1 || signal > 31)
+        return 1;
+    kill(res_job->pid, SIGCONT);
+    return 0;
+}
+
 int sf_fg(int argc, char **argv) {
     if (argc != 2)
         return 1;
@@ -434,10 +480,10 @@ void* get_builtin(char *cmd, bool *mproc) {
         *mp = true;
         return &sf_fg;
     }
-    // if (strcmp(cmd, "kill") == 0) {
-    //     *mp = true;
-    //     return &sf_kill;
-    // }
+    if (strcmp(cmd, "kill") == 0) {
+        *mp = true;
+        return &sf_kill;
+    }
     if (strcmp(cmd, "disown") == 0) {
         *mp = true;
         return &sf_disown;
@@ -780,12 +826,15 @@ void eval_cmd(char *input) {
 }
 
 void storepid_handler(int sig) {
-
+    rl_on_new_line();
+    if (jobs_head != NULL)
+        stored_pid = jobs_head->pid;
 }
 
 void getpid_handler(int sig) {
     //rl_completion_entry_function()
-    //rl_executing_keyseq("\\C-z", suspend_foreground);   
+    //rl_executing_keyseq("\\C-z", suspend_foreground);
+    rl_on_new_line();   
 }
 
 void sigint_handler(int sig) {
@@ -798,13 +847,34 @@ void sigint_handler(int sig) {
     sigprocmask(SIG_BLOCK, &int_mask, &prev_mask);
 
     // Tell foreground job to interrupt
-
+    struct job *cursor = jobs_head;
+    while (cursor != NULL) {
+        if (cursor->fg) {
+            kill(cursor->pid, SIGINT);
+            break;
+        }
+        cursor = cursor->next;
+    }
 
     // Unblock sigint
     sigprocmask(SIG_SETMASK, &prev_mask, NULL);
     
     errno = prev_errno;
 } 
+
+void m_sigtstp_handler(int sig) {
+    int prev_errno = errno;
+
+    struct job *cursor;
+    while (cursor != NULL) {
+        if (cursor->fg) {
+            kill(cursor->pid, SIGTSTP);
+        }
+        cursor = cursor->next;
+    }
+
+    errno = prev_errno;
+}
 
 void sigchld_handler(int sig) {
     int prev_errno = errno, status;
@@ -836,12 +906,23 @@ void sigchld_handler(int sig) {
     errno = prev_errno;
 }
 
+void init_handlers() {
+    signal(SIGCHLD, sigchld_handler);
+    signal(SIGINT, sigint_handler);
+    signal(SIGTSTP, m_sigtstp_handler);
+    rl_bind_keyseq("\\C-p", sf_info);
+    rl_bind_keyseq("\\C-h", sf_help);
+    rl_bind_keyseq("\\C-s", storepid_handler);
+    rl_bind_keyseq("\\C-g", getpid_handler);
+    rl_
+}
+
 int main(int argc, char** argv) {
     //DO NOT MODIFY THIS. If you do you will get a ZERO.
     rl_catch_signals = 0;
     //This is disable readline's default signal handlers, since you are going
     //to install your own.
-    signal(SIGCHLD, sigchld_handler);
+    init_handlers();
 
     pwd = calloc(PWD_SIZE, sizeof(char));
     machine = calloc(HOSTNAME_SIZE, sizeof(char));

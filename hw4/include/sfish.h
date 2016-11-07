@@ -73,6 +73,38 @@ char *open_tags[16] = {
     "\e[1;37m"
 };
 
+char *HELP_MENU = "sfish bash, version 1-release (x86_64-pc-linux-gnu)\n\
+bg [PID|JID] - resume stopped background job with $PID|$JID\n\
+cd [] [-] [DIR] - change current directory\n\
+chclr [SETTING] [COLOR] [BOLD] - change color of prompt elements\n\
+chpmt [SETTING] [TOGGLE] - change display of prompt elements\n\
+disown [PID|JID] - remove job with $PID|$JID from job list\n\
+exit - exit sfish\n\
+fg [PID|JID] - brings background job with $PID|$JID to foreground\n\
+jobs - print list of current jobs\n\
+kill [SIGNAL] [PID|JID] - send $SIGNAL to job with $PID|$JID\n\
+pwd - print present working directory\n\
+prt - print last return value\n";
+
+char *INFO_MENU = \
+"----Info----\n\
+help\n\
+prt\n\
+----CTRL---\n\
+cd\n\
+chclr\n\
+chpmt\n\
+pwd\n\
+exit\n\
+----Job Control----\n\
+bg\n\
+fg\n\
+disown\n\
+jobs\n\
+kill\n\
+---Number of Commands Run----\n";
+
+
 struct exec {
     pid_t pid;
     int argc;
@@ -90,6 +122,7 @@ struct job {
     char *status;
     bool fg;
     int nexec;
+    time_t time;
     struct exec *exec_head;
     struct job *next;
 };
