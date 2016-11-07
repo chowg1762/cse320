@@ -51,12 +51,13 @@ void s_print(int fd, const char *format, int nvar, ...) {
             if (format[i + 1] == 's')
                 strcat(str, va_arg(vars, const char*));
             else {
-                int num = va_arg(vars, int), numcpy = num, numlen;
+                int num = va_arg(vars, int), numcpy = num, numlen = 0;
                 while (numcpy != 0) {
                     numcpy /= 10;
                     ++numlen;
                 }
-                char numstr[numlen];
+                char numstr[numlen + 1];
+                memset(numstr, 0, numlen + 1);
                 while (num != 0) {
                     numstr[--numlen] = num % 10 + '0';
                     num /= 10;
@@ -221,15 +222,6 @@ int sf_chclr(int argc, char **argv) {
     return 0;
 }
 
-void print_jobs(int argc, char **argv) {
-    struct job *cursor = jobs_head;
-    while (cursor != NULL) {
-        s_print(STDOUT_FILENO, "[%d]    %s    %d    %s\n", 4, 
-        cursor->jid, cursor->status, cursor->pid, cursor->cmd);
-        cursor = cursor->next;
-    }
-}
-
 // void sf_bg(int argc, char **argv) {
 //     if (argc != 2) {
 //         s_print("bg: Invalid input\n");
@@ -247,6 +239,17 @@ void print_jobs(int argc, char **argv) {
 // void sf_disown(int argc, char **argv) {
 
 // }
+
+void print_jobs(int argc, char **argv) {
+    struct job *cursor = jobs_head;
+    while (cursor != NULL) {
+        if (strcmp(cursor->exec_head->argv[0], "jobs") != 0) {
+            s_print(STDOUT_FILENO, "[%d]    %s    %d    %s\n", 4, 
+            cursor->jid, cursor->status, cursor->pid, cursor->cmd);
+        }
+        cursor = cursor->next;
+    }
+}
 
 void* get_builtin(char *cmd, bool *mproc) {
     bool *mp;
@@ -442,6 +445,7 @@ int make_job(char *input, struct job **new_job) {
     (*new_job) = calloc(1, sizeof(struct job));
     (*new_job)->cmd = input;
     (*new_job)->fg = true;
+    (*new_job)->status = exec_status[RUNNING];
     
     // Copy input to sep
     char cmd[strlen(input) + 1], *cmdp = cmd;
@@ -550,7 +554,7 @@ void setup_files(struct exec *exec, int *pipes, int npipes, int execn) {
 }
 
 void add_job(struct job *new_job) {
-    struct job *cursor = jobs_head, *prev_job;
+    struct job *cursor = jobs_head, *prev_job = NULL;
     // Find lowest available jid
     if (cursor == NULL || cursor->jid > 1) {
         new_job->jid = 1;
@@ -565,8 +569,11 @@ void add_job(struct job *new_job) {
                 return;
             }
             prev_job = cursor;
-            if (cursor->next == NULL)
+            if (cursor->next == NULL) {
+                cursor->next = new_job;
+                new_job->next = NULL;
                 break;
+            }
             cursor = cursor->next;
         }
         if (new_job->jid == 0) {
@@ -576,12 +583,10 @@ void add_job(struct job *new_job) {
 }
 
 struct job* find_job(pid_t pid) {
-    printf("pid: %d\n", pid);
     struct job *cursor = jobs_head;
     while (cursor->pid != pid) {
         cursor = cursor->next;
     }
-    printf("found job: %s\n", cursor->exec_head->argv[0]);
     return cursor;
 }
 
@@ -602,6 +607,9 @@ void remove_job(struct job *dead_job) {
 void start_job(struct job *new_job) {
     struct exec *cursor = new_job->exec_head;
 
+    // Overwrite sigchld_handler
+    signal(SIGCHLD, NULL);
+
     // Make pipes
     int npipes = (new_job->nexec - 1) << 1, *pipes = calloc(npipes, sizeof(int));
     for (int i = 0; i < npipes; i += 2) {
@@ -615,13 +623,6 @@ void start_job(struct job *new_job) {
     while (cursor != NULL) {
         // Exec
         if ((cursor->pid = fork()) == 0) {
-            // Set parent watchers
-            if (prctl(PR_SET_PDEATHSIG, SIGTERM) == -1)
-                exit(EXIT_FAILURE);
-            // if (getppid() != new_job->pid) {
-            //     printf("parent: %d | job: %d\n", getppid(), new_job->pid);
-            //     exit(EXIT_SUCCESS);
-            // }
             // Set redirection
             setup_files(cursor, pipes, npipes, execn);
             // Builtin
@@ -657,7 +658,7 @@ void start_job(struct job *new_job) {
                 }
             }
             int status, prev_errno = errno;
-            if (waitpid(cursor->    pid, &status, 0) < 0) {
+            if (waitpid(cursor->pid, &status, 0) < 0) {
                  s_print(STDERR_FILENO, "waitpid error\n", 0);
                  errno = prev_errno;
              }
@@ -687,12 +688,12 @@ void eval_cmd(char *input) {
     // Add job to job list
     add_job(new_job);
 
-    // Fork for job and start
+    // Fork for execs and wait if needed
     if ((new_job->pid = fork()) == 0) {
         start_job(new_job);
         exit(EXIT_SUCCESS);
     } 
-
+    
     // Foreground: wait for job to end
     if (new_job->fg) {
         int status, prev_errno = errno;
@@ -712,7 +713,8 @@ void storepid_handler(int sig) {
 }
 
 void getpid_handler(int sig) {
-
+    //rl_completion_entry_function()
+    //rl_executing_keyseq("\\C-z", suspend_foreground);   
 }
 
 void sigint_handler(int sig) {
@@ -741,7 +743,6 @@ void sigchld_handler(int sig) {
     // Check if responsible child is background
     struct job *job_cursor = jobs_head;
     while (job_cursor != NULL) {
-        printf("%d: %s\n", job_cursor->pid, job_cursor->exec_head->argv[0]);
         job_cursor = job_cursor->next;
     }
     
@@ -756,7 +757,6 @@ void sigchld_handler(int sig) {
         // Remove dead job from job list
         dead_job = find_job(pid);
         remove_job(dead_job);
-        printf("reaped %d\n", pid);
     }
 
     // Unblock sigchld
@@ -781,20 +781,20 @@ int main(int argc, char** argv) {
     // set_handlers();
 
     char *test2 = calloc(100, 1);
-    strcpy(test2, "ls");
+    strcpy(test2, "cd ../testexecs");
     eval_cmd(test2);
 
-    // char *test1 = calloc(100, 1);
-    // strcpy(test1, "cd ../testexecs");
-    // eval_cmd(test1);
+    char *test1 = calloc(100, 1);
+    strcpy(test1, "./sleepy&");
+    eval_cmd(test1);
 
-    // char *test3 = calloc(100, 1);
-    // strcpy(test3, "./infinite &");
-    // eval_cmd(test3);
+    char *test3 = calloc(100, 1);
+    strcpy(test3, "ls&");
+    eval_cmd(test3);
 
-    // char *test4 = calloc(100, 1);
-    // strcpy(test4, "ls");
-    // eval_cmd(test4);
+    char *test4 = calloc(100, 1);
+    strcpy(test4, "jobs");
+    eval_cmd(test4);
 
     // char *test = calloc(20, 1); //grep - < hello | cowsay | grep ^ | cowsay > madness
     // strcpy(test, "cd ..");

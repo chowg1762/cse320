@@ -94,6 +94,7 @@ struct job {
     struct job *next;
 };
 
+enum status {RUNNING = 0, STOPPED};
 char *exec_status[2] = {"Running", "Stopped"};
 
 #endif
