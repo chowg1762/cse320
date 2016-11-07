@@ -73,7 +73,7 @@ char *open_tags[16] = {
     "\e[1;37m"
 };
 
-char *HELP_MENU = "sfish bash, version 1-release (x86_64-pc-linux-gnu)\n\
+char *HELP_MENU = "\nsfish bash, version 1-release (x86_64-pc-linux-gnu)\n\
 bg [PID|JID] - resume stopped background job with $PID|$JID\n\
 cd [] [-] [DIR] - change current directory\n\
 chclr [SETTING] [COLOR] [BOLD] - change color of prompt elements\n\
@@ -87,7 +87,7 @@ pwd - print present working directory\n\
 prt - print last return value\n";
 
 char *INFO_MENU = \
-"----Info----\n\
+"\n----Info----\n\
 help\n\
 prt\n\
 ----CTRL---\n\
