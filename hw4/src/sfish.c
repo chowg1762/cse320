@@ -60,6 +60,9 @@ void s_print(int fd, const char *format, int nvar, ...) {
                 }
                 char numstr[numlen + 1];
                 memset(numstr, 0, numlen + 1);
+                if (num == 0) {
+                    numstr[0] = '0';
+                }
                 while (num != 0) {
                     numstr[--numlen] = num % 10 + '0';
                     num /= 10;
@@ -123,6 +126,11 @@ int sf_info(int count, int key) {
 }
 
 void sf_exit(int argc, char **argv) {
+    struct job *cursor = jobs_head;
+    while (cursor != NULL) {
+        kill(-cursor->pid, SIGTERM);
+        cursor = cursor->next;
+    }
     exit(EXIT_SUCCESS);
 }
 
@@ -169,7 +177,10 @@ int sf_pwd(int argc, char **argv) {
 }
 
 int sf_prt(int argc, char **argv) {
-    s_print(STDOUT_FILENO, "%d\n", 1, last_return);
+    if (last_return < 100)
+        s_print(STDOUT_FILENO, "%d\n", 1, last_return);
+    else 
+        s_print(STDOUT_FILENO, "No commands have been run.\n", 0);
     return 0;
 }
 
@@ -244,10 +255,6 @@ int sf_chclr(int argc, char **argv) {
 
     return 0;
 }
-
-// void sf_kill(int argc, char **argv) {
-
-// }
 
 void free_job(struct job *done_job) {
     struct exec *cursor = done_job->exec_head, *temp;
@@ -354,8 +361,10 @@ int sf_kill(int argc, char **argv) {
         jpid = atoi(argv[1]);
         res_job = find_job(jpid, false);
     }
-    if (res_job == NULL)
+    if (res_job == NULL) {
+        s_print(STDERR_FILENO, "kill: bad job identifier\n", 0);
         return 1;
+    }
     // Get signal
     if (argc == 2)
         signal = 15;
@@ -364,6 +373,8 @@ int sf_kill(int argc, char **argv) {
     if (signal < 1 || signal > 31)
         return 1;
     kill(res_job->pid, SIGCONT);
+    s_print(STDOUT_FILENO, "[%d] %d sent signal %d\n", 
+    res_job->jid, res_job->pid, signal);
     return 0;
 }
 
@@ -386,6 +397,7 @@ int sf_fg(int argc, char **argv) {
         return 1;
     int status;
     new_fg->fg = true;
+    printf("Changed job to fg\n");
     if (waitpid(new_fg->pid, &status, 0) < 0) {
         s_print(STDERR_FILENO, "waitpid error\n", 0);
     }
@@ -409,7 +421,7 @@ int sf_bg(int argc, char **argv) {
     if (res_job == NULL) {
         return 1;
     }
-    kill(res_job->pid, SIGCONT);
+    kill(-res_job->pid, SIGCONT);
     return 0;
 }
 
@@ -748,7 +760,7 @@ void start_job(struct job *new_job) {
     while (cursor != NULL) {
         // Exec
         if ((cursor->pid = fork()) == 0) {
-            setpgid(0, new_job->pid);
+            setpgid(0, getpgid(getpid()));
             // Set redirection
             setup_files(cursor, pipes, npipes, execn);
             // Builtin
@@ -794,6 +806,20 @@ void start_job(struct job *new_job) {
     }
 }
 
+void init_job_handlers() {
+    signal(SIGCHLD, NULL);
+    signal(SIGINT, NULL);
+    signal(SIGTSTP, NULL);
+    rl_command_func_t sf_info;
+    rl_command_func_t sf_help_caller;
+    rl_command_func_t storepid_handler;
+    rl_command_func_t getpid_handler;
+    rl_bind_keyseq("\\C-p", NULL);
+    rl_bind_keyseq("\\C-h", NULL);
+    rl_bind_keyseq("\\C-b", NULL);
+    rl_bind_keyseq("\\C-g", NULL);
+}
+
 void eval_cmd(char *input) {
     struct job *new_job;
 
@@ -816,7 +842,7 @@ void eval_cmd(char *input) {
 
     // Fork for execs and wait if needed
     if ((new_job->pid = fork()) == 0) {
-
+        init_job_handlers();
         start_job(new_job);
         exit(EXIT_SUCCESS);
     } 
@@ -832,11 +858,13 @@ void eval_cmd(char *input) {
         else {
             remove_job(new_job);
         }
+        last_return = status;
+    } else {
+        s_print(STDOUT_FILENO, "[%d]  %d\n", 2, new_job->jid, new_job->pid);
     } 
 }
 
 int storepid_handler(int count, int key) {
-    rl_on_new_line();
     if (jobs_head != NULL)
         stored_pid = jobs_head->pid;
     else
@@ -846,19 +874,23 @@ int storepid_handler(int count, int key) {
 
 int getpid_handler(int count, int key) {
     s_print(STDOUT_FILENO, "\n", 0);
-    rl_on_new_line();   
+    rl_on_new_line();
+    struct job *stored_job;
     if (stored_pid != -1) {
-        struct job *stored_job = find_job(stored_pid, false);
+        stored_job = find_job(stored_pid, false);
         if (stored_job == NULL) {
             s_print(STDERR_FILENO, "SPID is not set\n", 0);
             stored_pid = -1;
             return 1;    
         }
         if (stored_job->fg) {
-            s_print(STDOUT_FILENO, "Sending sigstop to %s\n", 1, stored_job->exec_head->argv[0]);
-            kill(stored_job->pid, SIGSTOP);
+            s_print(STDOUT_FILENO, "[%d] %d stopped by signal 19\n", 2,
+            stored_job->jid, stored_job->pid);
+            kill(-stored_job->pid, SIGSTOP);
         } else {
-            kill(stored_job->pid, SIGTERM);
+            s_print(STDOUT_FILENO, "[%d] %d stopped by signal 15\n", 2,
+            stored_job->jid, stored_job->pid);
+            kill(-stored_job->pid, SIGTERM);
         }
     } else {
         s_print(STDERR_FILENO, "SPID is not set\n", 0);
@@ -879,10 +911,9 @@ void sigint_handler(int sig) {
     //Tell foreground job to interrupt
     struct job *cursor = jobs_head;
     while (cursor != NULL) {
-        s_print(STDOUT_FILENO, "cursor %s\n", 1, cursor->exec_head->argv[0]);
         if (cursor->fg) {
-            s_print(STDOUT_FILENO, "cursor %s\n", 1, cursor->exec_head->argv[0]);
-            kill(cursor->pid, SIGINT);
+            s_print(STDOUT_FILENO, "cursor %d\n", 1, cursor->pid);
+            kill(-cursor->pid, SIGINT);
             remove_job(cursor);
             break;
         }
@@ -895,17 +926,25 @@ void sigint_handler(int sig) {
     errno = prev_errno;
 } 
 
-void m_sigtstp_handler(int sig) {
+void sigtstp_handler(int sig) {
     int prev_errno = errno;
+    sigset_t all_mask, prev_mask;
+    
+    // Block signals
+    sigemptyset(&all_mask);
+    sigfillset(&all_mask);
+    sigprocmask(SIG_BLOCK, &all_mask, &prev_mask);
 
     struct job *cursor = jobs_head;
     while (cursor != NULL) {
         if (cursor->fg) {
-            kill(cursor->pid, SIGTSTP);
+            kill(-cursor->pid, SIGTSTP);
         }
         cursor = cursor->next;
     }
 
+    // Unblock signals
+    sigprocmask(SIG_SETMASK, &prev_mask, NULL);
     errno = prev_errno;
 }
 
@@ -942,14 +981,14 @@ void sigchld_handler(int sig) {
 void init_handlers() {
     signal(SIGCHLD, sigchld_handler);
     signal(SIGINT, sigint_handler);
-    signal(SIGTSTP, m_sigtstp_handler);
+    signal(SIGTSTP, sigtstp_handler);
     rl_command_func_t sf_info;
     rl_command_func_t sf_help_caller;
     rl_command_func_t storepid_handler;
     rl_command_func_t getpid_handler;
     rl_bind_keyseq("\\C-p", sf_info);
     rl_bind_keyseq("\\C-h", sf_help_caller);
-    rl_bind_keyseq("\\C-s", storepid_handler);
+    rl_bind_keyseq("\\C-b", storepid_handler);
     rl_bind_keyseq("\\C-g", getpid_handler);
 }
 
@@ -968,17 +1007,20 @@ int main(int argc, char** argv) {
     // Set sig handlers
     // set_handlers();
 
-    // char *test2 = calloc(100, 1);
-    // strcpy(test2, "cd ../testexecs");
-    // eval_cmd(test2);
+    char *test2 = calloc(100, 1);
+    strcpy(test2, "cd ../testexecs");
+    eval_cmd(test2);
 
-    // char *test1 = calloc(100, 1);
-    // strcpy(test1, "./sleepy&");
-    // eval_cmd(test1);
+    char *test1 = calloc(100, 1);
+    strcpy(test1, "./sleepy&");
+    eval_cmd(test1);
 
-    // char *test7 = calloc(100, 1);
-    // strcpy(test7, "./sleepy&");
-    // eval_cmd(test7);
+    char *test7 = calloc(100, 1);
+    strcpy(test7, "./sleepy&");
+    eval_cmd(test7);
+
+    // storepid_handler(0, 0);
+    // getpid_handler(0, 0);
 
     // char *test10 = calloc(100, 1);
     // strcpy(test10, "./sleepy&");
