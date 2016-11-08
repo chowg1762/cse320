@@ -115,11 +115,11 @@ int sf_info(int count, int key) {
     // Print info menu
     rl_on_new_line();
     s_print(STDOUT_FILENO, INFO_MENU, 0);
-    s_print(STDOUT_FILENO, "%d\n----Process Table----\nPGID    PID    TIME    CMD\n", 1, cmd_count);
+    s_print(STDOUT_FILENO, "%d\n----Process Table----\nPGID    PID    CMD\n", 1, cmd_count);
     struct job *cursor = jobs_head;
     while (cursor != NULL) {
-        s_print(STDOUT_FILENO, "%d %d %s   %s\n", 4, 
-        cursor->pid, cursor->pid, cursor->time, cursor->cmd);
+        s_print(STDOUT_FILENO, "%d %d %s\n", 3,
+        cursor->pid, cursor->pid, cursor->cmd);
         cursor = cursor->next;
     }
     return 0;
@@ -1033,6 +1033,8 @@ int main(int argc, char** argv) {
     //to install your own.
     init_handlers();
 
+    last_return = -1;
+    cmd_count = 0;
     pwd = calloc(PWD_SIZE, sizeof(char));
     machine = calloc(HOSTNAME_SIZE, sizeof(char));
     char *prompt = calloc(PROMPT_SIZE, sizeof(char));
