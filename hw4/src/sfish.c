@@ -1038,14 +1038,6 @@ int main(int argc, char** argv) {
     char *prompt = calloc(PROMPT_SIZE, sizeof(char));
     make_prompt(prompt);
 
-    char *test2 = calloc(100, 1);
-    strcpy(test2, "cd ../testexecs");
-    eval_cmd(test2);
-
-    // char *test1 = calloc(100, 1);
-    // strcpy(test1, "./sleepy");
-    // eval_cmd(test1);
-
     char *cmd;
     while((cmd = readline(prompt)) != NULL) {
         eval_cmd(cmd);
