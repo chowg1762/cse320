@@ -34,7 +34,7 @@ char *var_cat(char *buf, int nvar, ...) {
 
 void s_print(int fd, const char *format, int nvar, ...) {
     // Count vars in format
-    int i = 0, j; // s_print(STDOUT_FILENO, "yo %s %s %s\n", 3, s1, s2, s3);
+    int i = 0, j;
 
     // Initialize va_list
     va_list vars;
@@ -118,8 +118,8 @@ int sf_info(int count, int key) {
     s_print(STDOUT_FILENO, "%d\n----Process Table----\nPGID    PID    TIME    CMD\n", 1, cmd_count);
     struct job *cursor = jobs_head;
     while (cursor != NULL) {
-        s_print(STDOUT_FILENO, "%d    %d     %d    %s\n", 4, 
-        cursor->pid, cursor->pid,cursor->time, cursor->cmd);
+        s_print(STDOUT_FILENO, "%d %d %s   %s\n", 4, 
+        cursor->pid, cursor->pid, cursor->time, cursor->cmd);
         cursor = cursor->next;
     }
     return 0;
@@ -383,16 +383,12 @@ int sf_kill(int argc, char **argv) {
     }
 
     pid_t pid = res_job->pid;
-    kill(res_job->pid, SIGCONT);
+    kill(-res_job->pid, signal);
     // Check status of job
     if ((res_job = find_job(pid, false)) != NULL) {
         int status;
-        waitpid(pid, &status, WNOHANG);
-        if (WIFSIGNALED(status)) {
-            s_print(STDOUT_FILENO, "[%d] %d killed by signal %d\n", 3, 
-            res_job->jid, res_job->pid, signal);
-            remove_job(res_job);
-        } else if (WIFSTOPPED(status)) {
+        waitpid(pid, &status, WUNTRACED | WCONTINUED | WNOHANG);
+        if (WIFSTOPPED(status)) {
             s_print(STDOUT_FILENO, "[%d] %d stopped by signal %d\n", 3, 
             res_job->jid, res_job->pid, signal);
             res_job->status = exec_status[STOPPED];
@@ -400,7 +396,12 @@ int sf_kill(int argc, char **argv) {
             s_print(STDOUT_FILENO, "[%d] %d resumed\n", 2, 
             res_job->jid, res_job->pid);
             res_job->status = exec_status[RUNNING];
+        } else if (WIFSIGNALED(status)) {
+            s_print(STDOUT_FILENO, "[%d] %d killed by signal %d\n", 3, 
+            res_job->jid, res_job->pid, signal);
+            remove_job(res_job);
         }
+        
     }
     return 0;
 }
@@ -426,7 +427,6 @@ int sf_fg(int argc, char **argv) {
     }
     int status, prev_errno = errno;
     new_fg->fg = true;
-    printf("Changed job to fg\n");
     if (waitpid(new_fg->pid, &status, WUNTRACED) < 0) {
         errno = prev_errno;
     }
@@ -1053,11 +1053,9 @@ int main(int argc, char** argv) {
         ++cmd_count;
     }
 
-    //Don't forget to free allocated memory, and close file descriptors.
     free(pwd);
     free(machine);
     free(prompt);
-    //WE WILL CHECK VALGRIND!
 
     return EXIT_SUCCESS;
 }

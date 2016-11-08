@@ -18,6 +18,7 @@
 #include <unistd.h>
 
 #define MAX_ARGS 15
+#define TIME_SIZE 6
 
 enum colors {BLACK = 0, B_BLACK, RED, B_RED, GREEN, B_GREEN, 
 YELLOW, B_YELLOW, BLUE, B_BLUE, MAGENTA, B_MAGENTA, CYAN, B_CYAN, WHITE, B_WHITE};
@@ -90,7 +91,7 @@ struct job {
     char *status;
     bool fg;
     int nexec;
-    time_t time;
+    char time[TIME_SIZE];
     struct exec *exec_head;
     struct job *next;
 };
