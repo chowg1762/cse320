@@ -153,7 +153,14 @@ int sf_cd(int argc, char **argv) {
         }
     } else if (strcmp(path, "-") == 0) {
         if (strlen(last_dir) != 0) {
-            new_path_ptr = last_dir;
+            if (strncmp(last_dir, "~", 1) == 0) {
+                strcpy(new_path_ptr ,getenv("HOME"));
+                size_t homelen = strlen(new_path_ptr);
+                strncpy(new_path_ptr + homelen, last_dir + 1, 
+                strlen(last_dir) - 1);
+            } else {
+                new_path_ptr = last_dir;
+            }
         } else {
             new_path_ptr = pwd;
         }
@@ -161,7 +168,7 @@ int sf_cd(int argc, char **argv) {
         strcpy(new_path_ptr, path);
     }
 
-    if (chdir(path) == -1) {
+    if (chdir(new_path_ptr) == -1) {
         s_print(STDERR_FILENO, "sfish: cd: %s: No such directory\n", 1, argv[1]);
         return 1;
     }
@@ -177,7 +184,7 @@ int sf_pwd(int argc, char **argv) {
 }
 
 int sf_prt(int argc, char **argv) {
-    if (last_return < 100)
+    if (last_return < 100 || last_return > -20)
         s_print(STDOUT_FILENO, "%d\n", 1, last_return);
     else 
         s_print(STDOUT_FILENO, "No commands have been run.\n", 0);
@@ -362,7 +369,7 @@ int sf_kill(int argc, char **argv) {
         res_job = find_job(jpid, false);
     }
     if (res_job == NULL) {
-        s_print(STDERR_FILENO, "kill: bad job identifier\n", 0);
+        s_print(STDERR_FILENO, "kill: invalid job identifier\n", 0);
         return 1;
     }
     // Get signal
@@ -370,11 +377,31 @@ int sf_kill(int argc, char **argv) {
         signal = 15;
     else 
         signal = atoi(argv[2]);
-    if (signal < 1 || signal > 31)
+    if (signal < 1 || signal > 31) {
+        s_print(STDERR_FILENO, "kill: invalid signal\n", 0);
         return 1;
+    }
+
+    pid_t pid = res_job->pid;
     kill(res_job->pid, SIGCONT);
-    s_print(STDOUT_FILENO, "[%d] %d sent signal %d\n", 
-    res_job->jid, res_job->pid, signal);
+    // Check status of job
+    if ((res_job = find_job(pid, false)) != NULL) {
+        int status;
+        waitpid(pid, &status, WNOHANG);
+        if (WIFSIGNALED(status)) {
+            s_print(STDOUT_FILENO, "[%d] %d killed by signal %d\n", 3, 
+            res_job->jid, res_job->pid, signal);
+            remove_job(res_job);
+        } else if (WIFSTOPPED(status)) {
+            s_print(STDOUT_FILENO, "[%d] %d stopped by signal %d\n", 3, 
+            res_job->jid, res_job->pid, signal);
+            res_job->status = exec_status[STOPPED];
+        } else if (WIFCONTINUED(status)) {
+            s_print(STDOUT_FILENO, "[%d] %d resumed\n", 2, 
+            res_job->jid, res_job->pid);
+            res_job->status = exec_status[RUNNING];
+        }
+    }
     return 0;
 }
 
@@ -393,13 +420,15 @@ int sf_fg(int argc, char **argv) {
         jpid = atoi(argv[1]);
         new_fg = find_job(jpid, false);
     }
-    if (new_fg == NULL)
+    if (new_fg == NULL) {
+        s_print(STDERR_FILENO, "fg: invalid input\n", 0);
         return 1;
-    int status;
+    }
+    int status, prev_errno = errno;
     new_fg->fg = true;
     printf("Changed job to fg\n");
-    if (waitpid(new_fg->pid, &status, 0) < 0) {
-        s_print(STDERR_FILENO, "waitpid error\n", 0);
+    if (waitpid(new_fg->pid, &status, WUNTRACED) < 0) {
+        errno = prev_errno;
     }
     return 0;
 }
@@ -418,10 +447,12 @@ int sf_bg(int argc, char **argv) {
         jpid = atoi(argv[1]);
         res_job = find_job(jpid, false);
     }
-    if (res_job == NULL) {
+    if (res_job == NULL || res_job->status == exec_status[RUNNING]) {
+        s_print(STDERR_FILENO, "bg: invalid input\n", 0);
         return 1;
     }
     kill(-res_job->pid, SIGCONT);
+    res_job->status = exec_status[RUNNING];
     return 0;
 }
 
@@ -498,6 +529,10 @@ void* get_builtin(char *cmd, bool *mproc) {
         *mp = true;
         return &sf_fg;
     }
+    if (strcmp(cmd, "bg") == 0) {
+        *mp = true;
+        return &sf_bg;
+    }    
     if (strcmp(cmd, "kill") == 0) {
         *mp = true;
         return &sf_kill;
@@ -797,7 +832,6 @@ void start_job(struct job *new_job) {
             }
             int status, prev_errno = errno;
             if (waitpid(cursor->pid, &status, 0) < 0) {
-                 s_print(STDERR_FILENO, "waitpid error\n", 0);
                  errno = prev_errno;
              }
          }
@@ -850,8 +884,7 @@ void eval_cmd(char *input) {
     // Foreground: wait for job to end
     if (new_job->fg) {
         int status, prev_errno = errno;
-        if (waitpid(new_job->pid, &status, 0) == -1) {
-            s_print(STDERR_FILENO, "waitpid error\n", 0);
+        if (waitpid(new_job->pid, &status, WUNTRACED) == -1) {
             errno = prev_errno;
         } 
         // Reap was successful: remove job from list
@@ -887,6 +920,7 @@ int getpid_handler(int count, int key) {
             s_print(STDOUT_FILENO, "[%d] %d stopped by signal 19\n", 2,
             stored_job->jid, stored_job->pid);
             kill(-stored_job->pid, SIGSTOP);
+            stored_job->status = exec_status[STOPPED];
         } else {
             s_print(STDOUT_FILENO, "[%d] %d stopped by signal 15\n", 2,
             stored_job->jid, stored_job->pid);
@@ -912,9 +946,7 @@ void sigint_handler(int sig) {
     struct job *cursor = jobs_head;
     while (cursor != NULL) {
         if (cursor->fg) {
-            s_print(STDOUT_FILENO, "cursor %d\n", 1, cursor->pid);
             kill(-cursor->pid, SIGINT);
-            remove_job(cursor);
             break;
         }
         cursor = cursor->next;
@@ -922,7 +954,6 @@ void sigint_handler(int sig) {
 
     // Unblock signals
     sigprocmask(SIG_SETMASK, &prev_mask, NULL);
-    
     errno = prev_errno;
 } 
 
@@ -939,6 +970,9 @@ void sigtstp_handler(int sig) {
     while (cursor != NULL) {
         if (cursor->fg) {
             kill(-cursor->pid, SIGTSTP);
+            cursor->status = exec_status[STOPPED];
+            cursor->fg = false;
+            break;
         }
         cursor = cursor->next;
     }
@@ -1004,57 +1038,13 @@ int main(int argc, char** argv) {
     char *prompt = calloc(PROMPT_SIZE, sizeof(char));
     make_prompt(prompt);
 
-    // Set sig handlers
-    // set_handlers();
-
     char *test2 = calloc(100, 1);
     strcpy(test2, "cd ../testexecs");
     eval_cmd(test2);
 
-    char *test1 = calloc(100, 1);
-    strcpy(test1, "./sleepy&");
-    eval_cmd(test1);
-
-    char *test7 = calloc(100, 1);
-    strcpy(test7, "./sleepy&");
-    eval_cmd(test7);
-
-    // storepid_handler(0, 0);
-    // getpid_handler(0, 0);
-
-    // char *test10 = calloc(100, 1);
-    // strcpy(test10, "./sleepy&");
-    // eval_cmd(test10);
-
-    // char *test78 = calloc(100, 1);
-    // strcpy(test78, "./sleepy&");
-    // eval_cmd(test78);
-
-    // char *test53 = calloc(20, 1);
-    // strcpy(test53, "jobs");
-    // eval_cmd(test53);
-
-    // char *test3 = calloc(100, 1);
-    // strcpy(test3, "disown 1");
-    // eval_cmd(test3);
-
-    // char *test5 = calloc(20, 1);
-    // strcpy(test5, "jobs");
-    // eval_cmd(test5);
-
-    // char *test4 = calloc(100, 1);
-    // strcpy(test4, "disown %2");
-    // eval_cmd(test4);
-
-    // char *test6 = calloc(20, 1);
-    // strcpy(test6, "jobs");
-    // eval_cmd(test6);
-
-    // sigint_handler(1);
-
-    // char *test = calloc(20, 1); //grep - < hello | cowsay | grep ^ | cowsay > madness
-    // strcpy(test, "cd ..");
-    // eval_cmd(test);
+    // char *test1 = calloc(100, 1);
+    // strcpy(test1, "./sleepy");
+    // eval_cmd(test1);
 
     char *cmd;
     while((cmd = readline(prompt)) != NULL) {
