@@ -8,7 +8,6 @@
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
-#include <time.h>
 
 #define DATA_DIR "data"
 
