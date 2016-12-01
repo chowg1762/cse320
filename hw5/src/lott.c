@@ -9,15 +9,15 @@ int main(int argc, char const* argv[]) {
 
     if(strcmp(argv[2], QUERY_STRINGS[A]) == 0){
         current_query = A;
-    }else if(strcmp(argv[2], QUERY_STRINGS[B]) == 0){
+    } else if(strcmp(argv[2], QUERY_STRINGS[B]) == 0){
         current_query = B;
-    }else if(strcmp(argv[2], QUERY_STRINGS[C]) == 0){
+    } else if(strcmp(argv[2], QUERY_STRINGS[C]) == 0){
         current_query = C;
-    }else if(strcmp(argv[2], QUERY_STRINGS[D]) == 0){
+    } else if(strcmp(argv[2], QUERY_STRINGS[D]) == 0){
         current_query = D;
-    }else if(strcmp(argv[2], QUERY_STRINGS[E]) == 0){
+    } else if(strcmp(argv[2], QUERY_STRINGS[E]) == 0){
         current_query = E;
-    }else{
+    } else{
         fprintf(stderr, "%s: %s\n", "Not an acceptable query", argv[2]);
         HELP;
         exit(EXIT_FAILURE);

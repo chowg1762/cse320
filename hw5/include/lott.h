@@ -1,12 +1,14 @@
 #ifndef LOTT_H
 #define LOTT_H
 
+#include <dirent.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
+#include <time.h>
 
 #define DATA_DIR "data"
 

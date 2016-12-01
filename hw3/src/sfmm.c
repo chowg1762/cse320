@@ -43,6 +43,9 @@ void insert_node(void *ptr) {
 */
 void remove_node(void *ptr) {
   sf_free_header *node = ptr;
+  // Node is an allocated block
+  if (node->header.alloc == 1)
+    return;
   // Node is inside the list
   if (node->prev != NULL && node->next != NULL) {
     node->prev->next = node->next;
@@ -98,10 +101,17 @@ void write_block(void *ptr, size_t alloc, size_t block_size, size_t padding) {
 * @param ptr Pointer to the newly freed block
 */
 void *coalesce(void *ptr) {
+  // Check if block is free
+  sf_header *header = ptr;
+  if (header->alloc == 0) {
+    external -= header->block_size << 4;
+  } else {
+    write_block(ptr, 0, 0, 0);
+  }
+
   // Check if neighboring blocks are free
   size_t size = HDRP(ptr)->block_size << 4, 
   prev_alloc = 1, next_alloc = 1;
-  sf_header *header;
 
   // Check if block exists on heap bounds
   if (ptr > start_of_heap) {
@@ -118,9 +128,10 @@ void *coalesce(void *ptr) {
   
   // [A][T][F] (coalesce up)
   else if (prev_alloc && !next_alloc) {
+    header = ptr;
     sf_header *next_header = NEXT_BLKP(ptr);
+    external -= next_header->block_size << 4;
     size += next_header->block_size << 4;
-    write_block(ptr, 0, size, 0);
     remove_node(next_header);
     ++coalesces;
   } 
@@ -128,9 +139,9 @@ void *coalesce(void *ptr) {
   // [F][T][A] (coalesce down)
   else if (!prev_alloc && next_alloc) {
     header = PREV_BLKP(ptr);
+    external -= header->block_size << 4;
     size += header->block_size << 4;
     remove_node(header);
-    write_block(header, 0, size, 0);
     ++coalesces;
   }
 
@@ -138,14 +149,15 @@ void *coalesce(void *ptr) {
   else {
     header = PREV_BLKP(ptr);
     sf_header *next_header = NEXT_BLKP(ptr);
+    external -= (header->block_size << 4) + (next_header->block_size << 4);
     size += (header->block_size << 4) + (next_header->block_size << 4);
     remove_node(header);
     remove_node(next_header);
-    write_block(header, 0, size, 0);
     ++coalesces;
   }
 
   // Add to freelist as head
+  write_block(header, 0, size, 0);
   insert_node(header);
   external += size;
   return ptr;
@@ -159,9 +171,9 @@ void place(void* ptr, size_t new_size, size_t padding) {
 
   // Split block and make free block
   if (size_difference >= 32) {
+    remove_node(ptr);
     write_block(ptr, 1, new_size, padding);
     write_block(NEXT_BLKP(ptr), 0, size_difference, 0);
-    remove_node(ptr);
     coalesce(NEXT_BLKP(ptr));
   }
   // Splinter
@@ -199,11 +211,11 @@ void *expand_heap(size_t size) {
   }
 
   // Find lower bound of new possible block
-  void *ptr;
+  void *ptr, *prev_end = end_of_heap;
   sf_footer *footer = end_of_heap - SF_FOOTER_SIZE;
   // If last block is free, include it as lower bound
   if ((void*)footer > start_of_heap && footer->alloc == 0) {
-    ptr = end_of_heap - footer->block_size + SF_HEADER_SIZE;
+    ptr = end_of_heap - (footer->block_size << 4) + SF_HEADER_SIZE;
   } else {
     ptr = end_of_heap;
   }
@@ -220,13 +232,13 @@ void *expand_heap(size_t size) {
   }
 
   // Heap wasnt able to expand
-  if (ptr == end_of_heap) {
+  if (prev_end == end_of_heap) {
     return NULL;
   }
 
   // Make free block for new heap area
-  write_block(ptr, 0, end_of_heap - ptr, 0);
-  insert_node(ptr);
+  write_block(ptr, 1, end_of_heap - ptr, 0);
+  coalesce(ptr);
 
   return ptr;
 }
@@ -251,7 +263,7 @@ void *sf_malloc(size_t size) {
   // No suitable free block found - Expand heap
   else if ((ptr = expand_heap(size)) == NULL) {
     errno = ENOMEM;
-    return NULL;
+    return NULL; // 605030 to 605070
   }
 
   // Place new allocated block in
@@ -268,14 +280,20 @@ void sf_free(void *ptr) {
   if (ptr == NULL)
     return;
   
+  ptr -= SF_HEADER_SIZE;
+
+  // Handle non heap locations
   if (ptr < start_of_heap || ptr > end_of_heap) {
     errno = EINVAL; 
     return;
   } 
-  
-  ptr -= SF_HEADER_SIZE;
-  // Change allocated status
-  write_block(ptr, 0, 0, 0);
+
+  // Handle double free
+  sf_header *header = ptr;
+  if (header->alloc == 0) {
+    errno = EINVAL;
+    return;
+  }
 
   coalesce(ptr);
 }
@@ -293,22 +311,25 @@ void *sf_realloc(void *ptr, size_t size) {
   }
   
   ptr -= SF_HEADER_SIZE;
-  size_t old_size = HDRP(ptr)->block_size,
+  size_t old_size = HDRP(ptr)->block_size << 4,
   padding = (size % MAX_DATA_SIZE == 0)? 0 : 
   MAX_DATA_SIZE - (size % MAX_DATA_SIZE);
-  size += padding;
+  size += padding + SF_HEADER_SIZE + SF_FOOTER_SIZE;
 
   // Shrink
   if (old_size > size) {
-    place(ptr, padding, size);
+    place(ptr, size, padding);
   } 
   // Expand
   else if (old_size < size) { 
     sf_header *next_header = NEXT_BLKP(ptr);
     // Check if upper adjacent block is free and large enough
     if (next_header->alloc == 0 && 
-    (old_size + next_header->block_size) >= size) {
-      place(ptr, padding, size);
+    (old_size + (next_header->block_size << 4)) >= size) {
+      write_block(ptr, 1, old_size + (next_header->block_size << 4), padding);
+      remove_node(next_header);
+      external -= next_header->block_size << 4;
+      place(ptr, size, padding);
     } 
     // Cant extend here, find a new area
     else {

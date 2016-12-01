@@ -90,18 +90,44 @@ int main(int argc, char *argv[]) {
     info("Initialized heap with %dmb of heap space.\n", MAX_HEAP_SIZE >> 20);
   //  press_to_cont();
 
-    void *x = sf_malloc(20000);
-    sf_varprint(x);
-    void *y = sf_malloc(1);
-    sf_varprint(y);
-    void *z = sf_malloc(12);
+    void* ptr1 = sf_malloc(100);
+    void* ptr2 = sf_malloc(100);
+    sf_snapshot(true);
+    void* ptr3 = sf_malloc(100);
+    void* ptr4 = sf_malloc(100);
+    sf_snapshot(true);
 
-    sf_free(x);
-    sf_blockprint(freelist_head);
-    sf_free(z);
-    sf_blockprint(freelist_head);
-    sf_free(y);
-    sf_blockprint(freelist_head);
+    //sf_header* current_header = GO_DOWN(ptr1);
+    //sf_blockprint((void*)current_header);
+    //cr_assert(SHIFT_BACK(current_header->block_size) == 128, 
+       // "Size is not 128 for allocated blocks");
+    //cr_assert(current_header->padding_size == 12, "Incorrect padding.");
+    //cr_assert(SHIFT_BACK(freelist_head->header.block_size) == 3584
+        //, "Free block is not the correct size after malloc.");
+
+    sf_free(ptr1);
+    sf_snapshot(true);
+    sf_free(ptr3);
+    sf_snapshot(true);
+
+    //void* old_ptr = ptr2;
+    sf_realloc(ptr2, 150);
+    //cr_assert(ptr2 == old_ptr, "Pointers not equal after assert");
+   // current_header = GO_DOWN(ptr2);
+   // cr_assert(SHIFT_BACK(current_header->block_size) == 176,
+       // "Realloc did not return a block size of 176");
+   // cr_assert(current_header->padding_size == 10, "Padding is not correct");
+
+    sf_snapshot(true);
+    //cr_assert(SHIFT_BACK(freelist_head->header.block_size) == 80,
+        //"Size of head of list not 80.");
+   // cr_assert(freelist_head->header.padding_size == 0,
+        //"Padding size of free block is not 0.");
+
+    sf_blockprint((void*)freelist_head);
+    sf_free(ptr4);
+    sf_snapshot(true);
+    sf_blockprint((void*)freelist_head);
 
     // Print out title for first test
     printf("=== Test1: Allocation test ===\n");

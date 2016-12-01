@@ -326,6 +326,7 @@ struct job* find_job(pid_t pid, bool jid) {
 
 void remove_job(struct job *dead_job) {
     struct job *cursor = jobs_head, *prev = NULL;
+    printf("pid: %d\n", getpid());
     if (dead_job == NULL)
         return;
     while (cursor != dead_job) {
@@ -382,27 +383,22 @@ int sf_kill(int argc, char **argv) {
         return 1;
     }
 
-    pid_t pid = res_job->pid;
+    // Block signals
+    int prev_errno = errno;
+    sigset_t all_mask, prev_mask;
+    sigemptyset(&all_mask);
+    sigfillset(&all_mask);
+    sigprocmask(SIG_BLOCK, &all_mask, &prev_mask);
+
     kill(-res_job->pid, signal);
-    // Check status of job
-    if ((res_job = find_job(pid, false)) != NULL) {
-        int status;
-        waitpid(pid, &status, WUNTRACED | WCONTINUED | WNOHANG);
-        if (WIFSTOPPED(status)) {
-            s_print(STDOUT_FILENO, "[%d] %d stopped by signal %d\n", 3, 
-            res_job->jid, res_job->pid, signal);
-            res_job->status = exec_status[STOPPED];
-        } else if (WIFCONTINUED(status)) {
-            s_print(STDOUT_FILENO, "[%d] %d resumed\n", 2, 
-            res_job->jid, res_job->pid);
-            res_job->status = exec_status[RUNNING];
-        } else if (WIFSIGNALED(status)) {
-            s_print(STDOUT_FILENO, "[%d] %d killed by signal %d\n", 3, 
-            res_job->jid, res_job->pid, signal);
-            remove_job(res_job);
-        }
-        
-    }
+    
+    s_print(STDOUT_FILENO, "[%d] %d sent signal %d\n", 3,
+    res_job->jid, res_job->pid, signal);
+    
+    // Unblock signals
+    sigprocmask(SIG_SETMASK, &prev_mask, NULL);
+    errno = prev_errno;
+
     return 0;
 }
 
@@ -609,7 +605,7 @@ bool check_exec(char *exec) {
         s_print(STDERR_FILENO, "No command '%s' found\n", 1, exec);
     }
     return valid;
-}
+} 
 
 bool make_args(char *cmd, int *argc, char **argv) {
     *argc = 0;
@@ -726,15 +722,18 @@ int make_job(char *input, struct job **new_job) {
                 non_args = true;
             } else if (strcmp(cursor->argv[i], ">") == 0) {
                 cursor->desfd = 
-                open(fp, O_WRONLY | O_TRUNC | O_CREAT, S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR);
+                open(fp, O_WRONLY | O_TRUNC | O_CREAT, S_IRUSR | S_IRGRP | 
+                S_IWGRP | S_IWUSR);
                 non_args = true;
             } else if (strcmp(cursor->argv[i], "2>") == 0) {
                 cursor->errfd = 
-                open(fp, O_WRONLY | O_TRUNC | O_CREAT, S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR);
+                open(fp, O_WRONLY | O_TRUNC | O_CREAT, S_IRUSR | S_IRGRP | 
+                S_IWGRP | S_IWUSR);
                 non_args = true;
             } else if (strcmp(cursor->argv[i], ">>") == 0) {
                 cursor->desfd = 
-                open(fp, O_RDWR | O_APPEND | O_CREAT , S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR);
+                open(fp, O_RDWR | O_APPEND | O_CREAT , S_IRUSR | S_IRGRP | 
+                S_IWGRP | S_IWUSR);
                 non_args = true;
             }
             if (non_args) {
@@ -783,7 +782,8 @@ void start_job(struct job *new_job) {
     signal(SIGCHLD, NULL);
 
     // Make pipes
-    int npipes = (new_job->nexec - 1) << 1, *pipes = calloc(npipes, sizeof(int));
+    int npipes = (new_job->nexec - 1) << 1, 
+    *pipes = calloc(npipes, sizeof(int));
     for (int i = 0; i < npipes; i += 2) {
         if (pipe(pipes + i) > 0) {
             s_print(STDERR_FILENO, "Error creating pipes\n", 0);             }
@@ -841,9 +841,9 @@ void start_job(struct job *new_job) {
 }
 
 void init_job_handlers() {
-    signal(SIGCHLD, NULL);
-    signal(SIGINT, NULL);
-    signal(SIGTSTP, NULL);
+    signal(SIGCHLD, SIG_DFL);
+    signal(SIGINT, SIG_DFL);
+    signal(SIGTSTP, SIG_DFL);
     rl_command_func_t sf_info;
     rl_command_func_t sf_help_caller;
     rl_command_func_t storepid_handler;
@@ -992,18 +992,25 @@ void sigchld_handler(int sig) {
     while (job_cursor != NULL) {
         job_cursor = job_cursor->next;
     }
+
+    printf("In sigchld\n");
     
     // Block signals
     sigemptyset(&all_mask);
     sigfillset(&all_mask);
     sigprocmask(SIG_BLOCK, &all_mask, &prev_mask);
 
-    // Reap all dead children
-    struct job *dead_job;
+    // Check status of signaling child
+    struct job *signaled_job;
     while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
-        // Remove dead job from job list
-        dead_job = find_job(pid, false);
-        remove_job(dead_job);
+        signaled_job = find_job(pid, false);
+        if (WIFSTOPPED(status)) {
+            signaled_job->status = exec_status[STOPPED];
+        } else if (WIFCONTINUED(status)) {
+            signaled_job->status = exec_status[RUNNING];
+        } else if (WIFSIGNALED(status)) {
+            remove_job(signaled_job);
+        }
     }
 
     // Unblock signals
@@ -1032,6 +1039,7 @@ int main(int argc, char** argv) {
     //This is disable readline's default signal handlers, since you are going
     //to install your own.
     init_handlers();
+    printf("pid: %d\n", getpid());
 
     last_return = -1;
     cmd_count = 0;
@@ -1039,6 +1047,10 @@ int main(int argc, char** argv) {
     machine = calloc(HOSTNAME_SIZE, sizeof(char));
     char *prompt = calloc(PROMPT_SIZE, sizeof(char));
     make_prompt(prompt);
+
+    char *test1 = calloc(100, 1);
+    strcpy(test1, "cd ../testexecs");
+    eval_cmd(test1);
 
     char *cmd;
     while((cmd = readline(prompt)) != NULL) {
