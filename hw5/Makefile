@@ -13,7 +13,7 @@ PROFFLAG :=
 
 EXEC := lott
 
-CFLAGS := -Wall -Werror -std=gnu11
+CFLAGS := -g -Wall -Werror -std=gnu11
 DFLAGS := -g -DDEBUG
 LIBS := -lpthread
 PROFLIB := -Wl,--no-as-needed,-lprofiler,--as-needed

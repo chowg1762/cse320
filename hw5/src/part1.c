@@ -1,54 +1,103 @@
 #include "lott.h"
-#include "part1.h"
+#include "parts1_2.h"
 
 int part1() {
     // Find all files in data directory and store in array
     DIR *dirp = opendir(DATA_DIR);
     struct dirent *direp;
-    FILE *file;
     size_t nfiles;
 
     // Create linked list of sinfo nodes, nfiles long
-    sinfo head, *cursor = &head;
-    for (nfiles = 1; (direp = readdir(dirp)) != NULL; ++nfiles) {
-        if (nfiles == 1) {
-            strcpy(head.filename, direp->d_name);
+    sinfo *head = calloc(1, sizeof(sinfo)), *cursor = head;
+    for (nfiles = 0; (direp = readdir(dirp)) != NULL; ++nfiles) {
+        if (direp->d_name[0] == '.') {
+            --nfiles;
             continue;
         }
-        sinfo new_node;
-        strcpy(new_node.filename, direp->d_name);
+        if (nfiles == 1) {
+            strcpy(head->filename, direp->d_name);
+            if (current_query == E) {
+                head->einfo = calloc(CCOUNT_SIZE, sizeof(int));
+            }
+            continue;
+        }
+        sinfo *new_node = calloc(1, sizeof(sinfo));
+        strcpy(new_node->filename, direp->d_name);
         if (current_query == E) {
-            unsigned short ccount[CCOUNT_SIZE];
-            new_node.einfo = ccount;
+            new_node->einfo = calloc(CCOUNT_SIZE, sizeof(int));
         }
         
-        cursor->next = &new_node;
-        cursor = cursor->next;
+        cursor->next = new_node;
+        cursor = new_node;
     }
 
     // Spawn a thread for each file found and store in array
     pthread_t t_readers[nfiles];
-    cursor = &head;
+    char rel_filepath[FILENAME_SIZE];
+    strcpy(rel_filepath, "./");
+    strcpy(rel_filepath + 2, DATA_DIR);
+    strcpy(rel_filepath + 6, "/");
+    cursor = head;
     for (int i = 0; i < nfiles; ++i) {
-        file = fopen(cursor->filename, "r");
-        pthread_create(&t_readers[i], NULL, map, file);
+        strcpy(rel_filepath + 7, cursor->filename);
+        cursor->file = fopen(rel_filepath, "r");
+        if (cursor->file == NULL) {
+            exit(EXIT_FAILURE);
+        } 
+
+        pthread_create(&t_readers[i], NULL, map, cursor);
+        cursor = cursor->next;
     }
 
-    reduce(&head);
+    // Join all threads
+    cursor = head;
+    for (int i = 0; i < nfiles; ++i) {
+        pthread_join(t_readers[i], NULL);
+        cursor = cursor->next;
+    }
 
+    // Find result of query
+    head = reduce(head);
     printf(
         "Part: %s\n"
-        "Query: %s\n",
-        PART_STRINGS[current_part], QUERY_STRINGS[current_query]);
+        "Query: %s\n"
+        "Result: %lf, %s\n",
+        PART_STRINGS[current_part], QUERY_STRINGS[current_query],
+        head->average, head->filename);
+
+    // Restore resources
+    sinfo *prev;
+    cursor = head;
+    if (current_query == E) {
+        while (cursor != NULL) {
+            free(cursor->einfo);     
+            prev = cursor;
+            cursor = cursor->next;
+            free(prev);
+        }
+    } else {
+        while (cursor != NULL) {
+            prev = cursor;
+            cursor = cursor->next;
+            free(prev);
+        }
+    }
 
     return 0;
 }
 
+/**
+* Map controller, calls map function for current query,
+* Acts as start routine for created threads 
+*
+* @param v Pointer to input file
+* @return Pointer to sinfo struct
+*/
 static void* map(void* v) {
-    FILE *file = v;
+    sinfo *info = v;
     
     // Find map for current query
-    void (*f_map)(FILE*, sinfo*);
+    void (*f_map)(sinfo*);
     switch (current_query) {
         case A:
         case B:
@@ -63,11 +112,11 @@ static void* map(void* v) {
     }
 
     // Call map for query
-    sinfo info;
-    (*f_map)(file, &info);
+    (*f_map)(info);
 
-    fclose(file);
-
+    fclose(info->file);
+    pthread_exit(0);
+    
     return NULL;
 }
 
@@ -98,19 +147,20 @@ long stol(char *str, int n) {
 * @param file Pointer to open website csv file
 * @param info Pointer to sinfo node to store average in 
 */
-void map_avg_dur(FILE *file, sinfo *info) {
+void map_avg_dur(sinfo *info) {
     char line[LINE_SIZE], *linep = line, *durstr;
     int nvisits = 0, duration = 0;
     
     // For all lines in file
-    while (fgets(line, LINE_SIZE, file) != NULL) {
+    while (fgets(line, LINE_SIZE, info->file) != NULL) {
         // Find duration segment of line
-        strsep(&linep, ",");
+        strsep(&linep, ","), strsep(&linep, ",");
         durstr = strsep(&linep, ",");
         // Add duration to total
         duration += stoi(durstr, strlen(durstr));
+        linep = line;
         ++nvisits;
-    } 
+    }
 
     // Find average duration 
     info->average = (double)duration / nvisits;
@@ -119,17 +169,16 @@ void map_avg_dur(FILE *file, sinfo *info) {
 // Helper for map_avg_user
 // Checks bit array used_years for previously found years
 // Returns 1 if year not found, else 0
-int check_year_used(int year, long *used_years, int nyears) {
-    year -= 70;
-    
+int check_year_used(int year, unsigned long *used_years) {
     // Check bit at offset from 1970
-    long mask = 1;
+    unsigned long mask = 1;
+    year -= 70;
     mask <<= year;
-    mask &= *used_years;
     if (mask & *used_years) {
-        // Match found
+        // Match found - year used
         return 0;
     }
+    // Match not found - year not used
     *used_years |= mask;
     return 1;
 }
@@ -141,20 +190,24 @@ int check_year_used(int year, long *used_years, int nyears) {
 * @param file Pointer to open website csv file
 * @param info Pointer to sinfo node to store average in 
 */
-void map_avg_user(FILE *file, sinfo *info) {
+void map_avg_user(sinfo *info) {
     char line[LINE_SIZE], *linep = line, *timestamp;
     int nvisits = 0, nyears = 0;
-    long used_years = 0;
+    unsigned long used_years = 0;
     
     // For all lines in file
-    while (fgets(line, LINE_SIZE, file) != NULL) {
+    while (fgets(line, LINE_SIZE, info->file) != NULL) {
         // Find timestamp segment of line
         timestamp = strsep(&linep, ",");
 
         // Find year from timestamp
-        time_t ts = stol(timestamp, TIMESTAMP_SIZE);
+        time_t ts = stol(timestamp, strlen(timestamp));
         struct tm *tm = localtime(&ts);
-        nyears += check_year_used(tm->tm_year, &used_years, nyears);
+
+        // Add to nyears if year is new
+        nyears += check_year_used(tm->tm_year, &used_years);
+        ++nvisits;
+        linep = line;
     } 
 
     // Find average users
@@ -168,14 +221,12 @@ void map_avg_user(FILE *file, sinfo *info) {
 * @param file Pointer to open website csv file
 * @param info Pointer to sinfo node to store country counts list in
 */
-void map_max_country(FILE *file, sinfo *info) {
+void map_max_country(sinfo *info) {
     char line[LINE_SIZE], *linep = line;
     int ind;
 
-    memset(info->einfo, 0, CCOUNT_SIZE);
-    
     // For all lines in file
-    while (fgets(line, LINE_SIZE, file) != NULL) {
+    while (fgets(line, LINE_SIZE, info->file) != NULL) {
         // Find country code segment of line
         strsep(&linep, ","), strsep(&linep, ","), strsep(&linep, ",");
          
@@ -184,6 +235,7 @@ void map_max_country(FILE *file, sinfo *info) {
 
         // Add to count for that country
         ++(info->einfo[ind]);
+        linep = line;
     } 
 }
 
@@ -209,7 +261,7 @@ static void* reduce(void* v) {
 
 // Helper for reduce_avg_dur and reduce_avg_user
 // Returns comparison based on current_query
-char durcmp(sinfo *a, sinfo *b) {
+char avgcmp(sinfo *a, sinfo *b) {
     if (current_query == A || current_query == C) {
         if (a->average > b->average) {
             return 1;
@@ -247,7 +299,8 @@ void *reduce_avg(sinfo *head) {
 
     // Find query result
     while (cursor != NULL) {
-        res = durcmp(cursor, result);
+        // printf("%s: %lf\n%s\n%", cursor->filename, cursor->average);
+        res = avgcmp(cursor, result);
         if (res > 0) {
             result = cursor;
         } 
@@ -270,33 +323,38 @@ void *reduce_avg(sinfo *head) {
 * @return Pointer to sinfo node with highest country user count
 */
 void *reduce_max_country(sinfo *head) {
-    sinfo *max = NULL, *cursor = head;
-  
+    unsigned int ccount[CCOUNT_SIZE], maxind;
+    memset(ccount, 0, CCOUNT_SIZE * sizeof(int));
+    
+    sinfo *cursor = head;
     while (cursor != NULL) {
         // Find index of max country user count
-        int maxind = 0;
+        maxind = 0;
         for (int i = 1; i < CCOUNT_SIZE; ++i) {
-            if (cursor->einfo[maxind] < cursor->einfo[i]) {
+            // If i > maxind element OR i == maxind element and lex lesser
+            if (cursor->einfo[i] > cursor->einfo[maxind]) {
                 maxind = i;
             }
         }
-        cursor->average = maxind;
 
-        // Set new max if needed
-        if (max == NULL || 
-        cursor->einfo[(int)cursor->average] > max->einfo[(int)max->average]) {
-            max = cursor;
-        } 
-        else if (cursor->einfo[(int)cursor->average] == 
-        max->einfo[(int)max->average]) {
-            // Equal - pick alphabetical order first
-            if (strcmp(cursor->filename, max->filename) > 0) {
-                max = cursor;
-            }
-        }
+        // Add max country to combined list
+        ccount[maxind] += cursor->einfo[maxind];
 
         cursor = cursor->next;
     }
-    
-    return max;
+
+    // Find max country user count in combined list
+    maxind = 0;
+    for (int i = 1; i < CCOUNT_SIZE; ++i) {
+        if (ccount[i] > ccount[maxind]) {
+            maxind = i;
+        }
+    }
+
+    head->filename[0] = (maxind / 26) + 'A';
+    head->filename[1] = (maxind % 26) + 'A';
+    head->filename[2] = '\0';
+    head->average = ccount[maxind];
+
+    return head;
 }

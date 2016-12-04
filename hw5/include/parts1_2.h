@@ -7,11 +7,10 @@
 #define S_PER_D 86400
 
 typedef struct sinfo {
-    char filename[FILENAME_SIZE];
     FILE *file;
+    char filename[FILENAME_SIZE];
     double average;
     unsigned int *einfo;
-    int t_return;
     struct sinfo *next;
 } sinfo;
 
