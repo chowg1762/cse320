@@ -57,7 +57,7 @@ int part2(size_t nthreads) {
         // Join all used threads
         cursor = marker;
         for (int i = 0; i < rem_files && i < nthreads; ++i) {
-            pthread_join(t_readers[i], NULL);
+            pthread_join(t_readers[i], &(cursor->t_return));
             cursor = cursor->next;
         }
 

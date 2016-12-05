@@ -1,16 +1,19 @@
+#ifndef PARTS1_2_H
+#define PARTS1_2_H
+
 #include <time.h>
 
 #define FILENAME_SIZE 256
 #define LINE_SIZE 48
 #define CCOUNT_SIZE 675
 #define TIMESTAMP_SIZE 9
-#define S_PER_D 86400
 
 typedef struct sinfo {
     FILE *file;
     char filename[FILENAME_SIZE];
     double average;
     unsigned int *einfo;
+    void *t_return;
     struct sinfo *next;
 } sinfo;
 
@@ -74,3 +77,5 @@ void *reduce_avg(sinfo *head);
 * @return Pointer todo
 */
 void *reduce_max_country(sinfo *head);
+
+#endif
