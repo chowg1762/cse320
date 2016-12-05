@@ -1,14 +1,18 @@
 #include "lott.h"
 #include "part3.h"
 
-sem_t sem_fileacc;
+sem_t mut_file;
 FILE *mrfile;
 
 int part3(size_t nthreads) {
+    sem_init(&mut_file, 0, 1);
+
     // Find all files in data directory and store in array
     DIR *dirp = opendir(DATA_DIR);
     struct dirent *direp;
     size_t nfiles, rem_files;
+
+    printf("WOW\n");
 
     // Create linked list of sinfo nodes, nfiles long
     sinfo *head = calloc(1, sizeof(sinfo)), *cursor = head;
@@ -37,6 +41,14 @@ int part3(size_t nthreads) {
     // Create mapred.tmp for mapping and reducing communication
     mrfile = fopen(MR_FILENAME, "w+");
 
+    sinfo m, reso;
+    m.file = fopen("./data/51_la.csv", "r");
+    map(&m);
+    reduce(&reso);
+    exit(0);
+
+    printf("WOW\n");
+
     // Spawn reduce thread
     pthread_t t_reduce;
     sinfo result;
@@ -51,7 +63,7 @@ int part3(size_t nthreads) {
     strcpy(rel_filepath + 6, "/");
     sinfo *marker;
     cursor = head;
-    while (nrem > 0) {
+    while (rem_files > 0) {
         // Spawn threads: nthreads or rem_files
         marker = cursor;
         for (int i = 0; i < rem_files && i < nthreads; ++i) {
@@ -78,20 +90,9 @@ int part3(size_t nthreads) {
     // Cancel
     pthread_cancel(t_reduce);
 
-    // Find result of query
-    sinfo result;
-    head = reduce(&result);
-
     // Close and delete mapred.tmp file
     fclose(mrfile);
     unlink(MR_FILENAME);
-
-    printf(
-        "Part: %s\n"
-        "Query: %s\n"
-        "Result: %lf, %s\n",
-        PART_STRINGS[current_part], QUERY_STRINGS[current_query],
-        head->average, head->filename);
 
     // Restore resources
     sinfo *prev;
@@ -136,22 +137,30 @@ static long stol(char *str, int n) {
 
 // Semaphore locking wrapper for fprintf to mapred.tmp
 static void s_writeinfo(sinfo *info) {
-    sem_wait(&sem_fileacc);
+    sem_wait(&mut_file);
     if (current_query != E) {
         fprintf(mrfile, "%s,%lf\n", info->filename, info->average);
+        // printf("%s,%lf\n", info->filename, info->average);
     } else {
-        fprintf(mrfile, "%s,%d,%d\n", info->filename, 
-        info->einfo[(int)info->average], (int)info->average);
+        fprintf(mrfile, "%d,%d\n", info->einfo[(int)info->average], 
+        (int)info->average);
+        // printf("%s,%d,%d\n", info->filename, info->einfo[(int)info->average], 
+        // (int)info->average);
     }
-    sem_post(&sem_fileacc);
+    sem_post(&mut_file);
 }
 
 // Semaphore locking wrapper for fgets from mapred.tmp
-static char* s_fgets(char *buffer, int size) {
-    char *r;
-    sem_wait(&sem_fileacc);
-    r = fgets(buffer, size, mrfile);
-    sem_post(&sem_fileacc);
+static int s_fscanf(void *a, void *b) {
+    int r;
+    sem_wait(&mut_file);
+    if (current_query != E) {
+        r = fscanf(mrfile, "%s,%lf\n", (char*)a, (double*)b);
+    } else {
+        r = fscanf(mrfile, "%d,%d\n", (int*)a, (int*)b);
+    }
+    sem_post(&mut_file);
+    //r = fgets(buffer, size, mrfile);
     return r;
 }
 
@@ -184,10 +193,12 @@ static void* map(void* v) {
     (*f_map)(info);
 
     // Write query info to mapred.tmp
+    printf("pre %s\n", info->filename);
     s_writeinfo(info);
+    printf("post %s\n", info->filename);
 
     fclose(info->file);
-    pthread_exit(0);
+    //pthread_exit(0);
     
     return NULL;
 }
@@ -288,17 +299,38 @@ static void map_max_country(sinfo *info) {
         // Add to count for that country
         ++(info->einfo[ind]);
         linep = line;
+    }
+
+    // Find max country count with lexicographical tie breaking
+    for (int i = 0; i < CCOUNT_SIZE; ++i) {
+        if (info->einfo[i] > info->einfo[ind]) {
+            ind = i;
+        }
     } 
+    info->average = ind;
 }
 
 /**
 * Cancel routine for the reduce thread, prints results of query
 *
-* @param arg
+* @param v 
 *
 */
 static void reduce_cancel(void *v) {
+    sinfo *result = v;
+    if (current_query == E) {
+        result->filename[0] = ((int)result->average / 26) + 'A';
+        result->filename[1] = ((int)result->average % 26) + 'A';
+        result->filename[2] = '\0';
+        result->average = result->einfo[(int)result->average];
+    }
 
+    printf(
+        "Part: %s\n"
+        "Query: %s\n"
+        "Result: %lf, %s\n",
+        PART_STRINGS[current_part], QUERY_STRINGS[current_query],
+        result->average, result->filename);
 }
 
 /**
@@ -307,19 +339,23 @@ static void reduce_cancel(void *v) {
 * @param v Pointer to head of sinfo linked list
 * @return Pointer to sinfo containing result
 */
-static void* reduce(void *v) {
+static void *reduce(void *v) {
     pthread_cleanup_push(&reduce_cancel, v);
 
     // Find reduce for current query
-    void* (*f_reduce)(sinfo*);
+    void (*f_reduce)(sinfo*);
     if (current_query == E) {
         f_reduce = &reduce_max_country;
     } else {
         f_reduce = &reduce_avg;
     }
 
+    // Find query result
     sinfo *result = v;
-    return (*f_reduce)(result);
+    (*f_reduce)(result);
+
+     pthread_cleanup_pop(0);
+     return NULL;
 }
 
 // Helper for reduce_avg
@@ -348,83 +384,60 @@ static char avgcmp(double a, double b) {
 * (A/B/C/D) Reduce function for finding max/min average in mapred.tmp, 
 * bases result from current_query 
 *
-* @param result Pointer of sinfo to store result in 
-* @param nrem Number of remaining files to read info about
-* @return Pointer to sinfo containing result
+* @param result Pointer of sinfo to store result in
 */
-static void *reduce_avg(sinfo *result) {
-    char res;
+static void reduce_avg(sinfo *result) {
+    char res, filename[FILENAME_SIZE];
     double avg;
     result->average = -1;
 
     // Find query result
-    char line[LINE_SIZE], *linep;
+    char line[LINE_SIZE];
     memset(line, 0, LINE_SIZE);
     while (1) {
         // Read available info from mapred.tmp 
-        while (s_fgets(line, LINE_SIZE) != NULL) {
+        while (s_fscanf(filename, &avg) != EOF) {
             // Block canceling since there is an entry
             pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
-            sscanf(line, "%*s,%lf,", &avg);
-            res = avgcmp(avg, head->average);
+            // Read line of file and compare with current selection
+            res = avgcmp(avg, result->average);
             if (res > 0) {
                 result->average = avg;
+                strcpy(result->filename, filename);
             } 
             // Equal - pick alphabetical order first
             else if (res == 0) {
-                if (strcmp(cursor->filename, result->filename) < 0) {
-                    result = cursor;
+                if (strcmp(filename, result->filename) < 0) {
+                    result->average = avg;
+                    strcpy(result->filename, filename);;
                 }
             }
-            linep = line;
         }
         // Enable canceling 
-        pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL)
+        pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
     }
-
-    return result;
 }
 
 /**
 * (E) Reduce function for finding country with the most users
 *
-* @param result Pointer of sinfo to store result in 
-* @param nrem Number of remaining files to read info about
-* @return Pointer to sinfo node with highest country user count
+* @param result Pointer of sinfo to store result in
 */
-static void *reduce_max_country(sinfo *result) {
-    unsigned int ccount[CCOUNT_SIZE], maxind;
-    memset(ccount, 0, CCOUNT_SIZE * sizeof(int));
-    
-    sinfo *cursor = head;
-    while (cursor != NULL) {
-        // Find index of max country user count
-        maxind = 0;
-        for (int i = 1; i < CCOUNT_SIZE; ++i) {
-            // If i > maxind element OR i == maxind element and lex lesser
-            if (cursor->einfo[i] > cursor->einfo[maxind]) {
-                maxind = i;
-            }
+static void reduce_max_country(sinfo *result) {
+    char line[LINE_SIZE];
+    int code = -1, count = -1;
+    memset(line, 0, LINE_SIZE);
+    while (1) {
+        // Read available info from mapred.tmp 
+        while (s_fscanf(&code, &count) != EOF) {
+            // Block canceling since there is an entry
+            pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
+
+            // Read line of file and add count to index code
+            sscanf(line, "%d,%d\n", &code, &count);
+            result->einfo[code] += count; 
         }
-
-        // Add max country to combined list
-        ccount[maxind] += cursor->einfo[maxind];
-
-        cursor = cursor->next;
+        // Enable canceling 
+        pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
     }
-
-    // Find max country user count in combined list
-    maxind = 0;
-    for (int i = 1; i < CCOUNT_SIZE; ++i) {
-        if (ccount[i] > ccount[maxind]) {
-            maxind = i;
-        }
-    }
-
-    head->filename[0] = (maxind / 26) + 'A';
-    head->filename[1] = (maxind % 26) + 'A';
-    head->filename[2] = '\0';
-    head->average = ccount[maxind];
-
-    return head;
 }

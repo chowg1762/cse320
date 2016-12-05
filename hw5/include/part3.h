@@ -72,7 +72,7 @@ static void* reduce(void* v);
 * @param head Pointer to head of sinfo linked list
 * @return Pointer to sinfo node with max/min average 
 */
-static void *reduce_avg(sinfo *head);
+static void reduce_avg(sinfo *head);
 
 /**
 * (E) Reduce function for finding country with the most users
@@ -80,6 +80,6 @@ static void *reduce_avg(sinfo *head);
 * @param head Pointer to head of sinfo linked list
 * @return Pointer todo
 */
-static void *reduce_max_country(sinfo *head);
+static void reduce_max_country(sinfo *head);
 
 #endif
