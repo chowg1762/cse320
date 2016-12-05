@@ -33,7 +33,7 @@ static void* map(void* v);
 * @param file Pointer to open website csv file
 * @param info Pointer to sinfo node to store average in 
 */
-void map_avg_dur(sinfo *info);
+static void map_avg_dur(sinfo *info);
 
 /**
 * (C/D) Map function for finding average users per year, sets average
@@ -42,7 +42,7 @@ void map_avg_dur(sinfo *info);
 * @param file Pointer to open website csv file
 * @param info Pointer to sinfo node to store average in 
 */
-void map_avg_user(sinfo *info);
+static void map_avg_user(sinfo *info);
 
 /**
 * (E) Map function for finding country count, creates linked list for all 
@@ -51,7 +51,7 @@ void map_avg_user(sinfo *info);
 * @param file Pointer to open website csv file
 * @param info Pointer to sinfo node to store country counts list in
 */
-void map_max_country(sinfo *info);
+static void map_max_country(sinfo *info);
 
 /**
 * Reduce controller, calls reduce function for current query
@@ -68,7 +68,7 @@ static void* reduce(void* v);
 * @param head Pointer to head of sinfo linked list
 * @return Pointer to sinfo node with max/min average 
 */
-void *reduce_avg(sinfo *head);
+static void *reduce_avg(sinfo *head);
 
 /**
 * (E) Reduce function for finding country with the most users
@@ -76,6 +76,6 @@ void *reduce_avg(sinfo *head);
 * @param head Pointer to head of sinfo linked list
 * @return Pointer todo
 */
-void *reduce_max_country(sinfo *head);
+static void *reduce_max_country(sinfo *head);
 
 #endif

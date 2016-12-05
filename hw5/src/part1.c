@@ -121,7 +121,7 @@ static void* map(void* v) {
 }
 
 // Converts string to integer
-int stoi(char *str, int n) {
+static int stoi(char *str, int n) {
     int num = 0;
     for (int i = 0; i < n; ++i) {
         num *= 10;
@@ -131,7 +131,7 @@ int stoi(char *str, int n) {
 }
 
 // Converts string to long
-long stol(char *str, int n) {
+static long stol(char *str, int n) {
     long num = 0;
     for (int i = 0; i < n; ++i) {
         num *= 10;
@@ -147,7 +147,7 @@ long stol(char *str, int n) {
 * @param file Pointer to open website csv file
 * @param info Pointer to sinfo node to store average in 
 */
-void map_avg_dur(sinfo *info) {
+static void map_avg_dur(sinfo *info) {
     char line[LINE_SIZE], *linep = line, *durstr;
     int nvisits = 0, duration = 0;
     
@@ -169,7 +169,7 @@ void map_avg_dur(sinfo *info) {
 // Helper for map_avg_user
 // Checks bit array used_years for previously found years
 // Returns 1 if year not found, else 0
-int check_year_used(int year, unsigned long *used_years) {
+static int check_year_used(int year, unsigned long *used_years) {
     // Check bit at offset from 1970
     unsigned long mask = 1;
     year -= 70;
@@ -190,7 +190,7 @@ int check_year_used(int year, unsigned long *used_years) {
 * @param file Pointer to open website csv file
 * @param info Pointer to sinfo node to store average in 
 */
-void map_avg_user(sinfo *info) {
+static void map_avg_user(sinfo *info) {
     char line[LINE_SIZE], *linep = line, *timestamp;
     int nvisits = 0, nyears = 0;
     unsigned long used_years = 0;
@@ -221,7 +221,7 @@ void map_avg_user(sinfo *info) {
 * @param file Pointer to open website csv file
 * @param info Pointer to sinfo node to store country counts list in
 */
-void map_max_country(sinfo *info) {
+static void map_max_country(sinfo *info) {
     char line[LINE_SIZE], *linep = line;
     int ind;
 
@@ -261,7 +261,7 @@ static void* reduce(void* v) {
 
 // Helper for reduce_avg_dur and reduce_avg_user
 // Returns comparison based on current_query
-char avgcmp(sinfo *a, sinfo *b) {
+static char avgcmp(sinfo *a, sinfo *b) {
     if (current_query == A || current_query == C) {
         if (a->average > b->average) {
             return 1;
@@ -288,7 +288,7 @@ char avgcmp(sinfo *a, sinfo *b) {
 * @param head Pointer to head of sinfo linked list
 * @return Pointer to sinfo node with max/min average
 */
-void *reduce_avg(sinfo *head) {
+static void *reduce_avg(sinfo *head) {
     sinfo *cursor = head->next, *result = head;
     char res;
     
@@ -322,7 +322,7 @@ void *reduce_avg(sinfo *head) {
 * @param head Pointer to head of sinfo linked list
 * @return Pointer to sinfo node with highest country user count
 */
-void *reduce_max_country(sinfo *head) {
+static void *reduce_max_country(sinfo *head) {
     unsigned int ccount[CCOUNT_SIZE], maxind;
     memset(ccount, 0, CCOUNT_SIZE * sizeof(int));
     

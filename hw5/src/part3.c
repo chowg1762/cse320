@@ -8,7 +8,7 @@ int part3(size_t nthreads) {
     // Find all files in data directory and store in array
     DIR *dirp = opendir(DATA_DIR);
     struct dirent *direp;
-    size_t nfiles;
+    size_t nfiles, rem_files;
 
     // Create linked list of sinfo nodes, nfiles long
     sinfo *head = calloc(1, sizeof(sinfo)), *cursor = head;
@@ -34,19 +34,24 @@ int part3(size_t nthreads) {
         cursor = new_node;
     }
 
-    // Create mapred.tmp for mapping and reducing
+    // Create mapred.tmp for mapping and reducing communication
     mrfile = fopen(MR_FILENAME, "w+");
 
-    // For all files use an available thread and join it after completion
-    pthread_t t_readers[nthreads];
-    size_t rem_files = nfiles;
+    // Spawn reduce thread
+    pthread_t t_reduce;
+    sinfo result;
+    pthread_create(&t_reduce, NULL, reduce, &result);
+
+    // For all files use an available map thread, joining it after completion
+    pthread_t t_maps[nthreads];
+    rem_files = nfiles;
     char rel_filepath[FILENAME_SIZE];
     strcpy(rel_filepath, "./");
     strcpy(rel_filepath + 2, DATA_DIR);
     strcpy(rel_filepath + 6, "/");
     sinfo *marker;
     cursor = head;
-    while (rem_files > 0) {
+    while (nrem > 0) {
         // Spawn threads: nthreads or rem_files
         marker = cursor;
         for (int i = 0; i < rem_files && i < nthreads; ++i) {
@@ -56,25 +61,29 @@ int part3(size_t nthreads) {
                 exit(EXIT_FAILURE);
             }
 
-            pthread_create(&t_readers[i], NULL, map, cursor);
+            pthread_create(&t_maps[i], NULL, map, cursor);
             cursor = cursor->next;
         }
 
         // Join all used threads
         cursor = marker;
         for (int i = 0; i < rem_files && i < nthreads; ++i) {
-            pthread_join(t_readers[i], &(cursor->t_return));
+            pthread_join(t_maps[i], &(cursor->t_return));
             cursor = cursor->next;
         }
 
         rem_files -= nthreads;
     }
 
+    // Cancel
+    pthread_cancel(t_reduce);
+
     // Find result of query
-    head = reduce(head);
+    sinfo result;
+    head = reduce(&result);
 
     // Close and delete mapred.tmp file
-    fclose(MR_FILENAME);
+    fclose(mrfile);
     unlink(MR_FILENAME);
 
     printf(
@@ -106,7 +115,7 @@ int part3(size_t nthreads) {
 }
 
 // Converts string to integer
-int stoi(char *str, int n) {
+static int stoi(char *str, int n) {
     int num = 0;
     for (int i = 0; i < n; ++i) {
         num *= 10;
@@ -116,7 +125,7 @@ int stoi(char *str, int n) {
 }
 
 // Converts string to long
-long stol(char *str, int n) {
+static long stol(char *str, int n) {
     long num = 0;
     for (int i = 0; i < n; ++i) {
         num *= 10;
@@ -126,18 +135,24 @@ long stol(char *str, int n) {
 }
 
 // Semaphore locking wrapper for fprintf to mapred.tmp
-void s_writeinfo(sinfo *info) {
-    char buf[];
+static void s_writeinfo(sinfo *info) {
     sem_wait(&sem_fileacc);
-    fprintf(mrfile, format, );
+    if (current_query != E) {
+        fprintf(mrfile, "%s,%lf\n", info->filename, info->average);
+    } else {
+        fprintf(mrfile, "%s,%d,%d\n", info->filename, 
+        info->einfo[(int)info->average], (int)info->average);
+    }
     sem_post(&sem_fileacc);
 }
 
 // Semaphore locking wrapper for fgets from mapred.tmp
-void s_fgets(char *buffer, int size) {
+static char* s_fgets(char *buffer, int size) {
+    char *r;
     sem_wait(&sem_fileacc);
-    fgets(buffer, size, mrfile);
+    r = fgets(buffer, size, mrfile);
     sem_post(&sem_fileacc);
+    return r;
 }
 
 /**
@@ -184,7 +199,7 @@ static void* map(void* v) {
 * @param file Pointer to open website csv file
 * @param info Pointer to sinfo node to store average in 
 */
-void map_avg_dur(sinfo *info) {
+static void map_avg_dur(sinfo *info) {
     char line[LINE_SIZE], *linep = line, *durstr;
     int nvisits = 0, duration = 0;
     
@@ -206,7 +221,7 @@ void map_avg_dur(sinfo *info) {
 // Helper for map_avg_user
 // Checks bit array used_years for previously found years
 // Returns 1 if year not found, else 0
-int check_year_used(int year, unsigned long *used_years) {
+static int check_year_used(int year, unsigned long *used_years) {
     // Check bit at offset from 1970
     unsigned long mask = 1;
     year -= 70;
@@ -227,7 +242,7 @@ int check_year_used(int year, unsigned long *used_years) {
 * @param file Pointer to open website csv file
 * @param info Pointer to sinfo node to store average in 
 */
-void map_avg_user(sinfo *info) {
+static void map_avg_user(sinfo *info) {
     char line[LINE_SIZE], *linep = line, *timestamp;
     int nvisits = 0, nyears = 0;
     unsigned long used_years = 0;
@@ -258,7 +273,7 @@ void map_avg_user(sinfo *info) {
 * @param file Pointer to open website csv file
 * @param info Pointer to sinfo node to store country counts list in
 */
-void map_max_country(sinfo *info) {
+static void map_max_country(sinfo *info) {
     char line[LINE_SIZE], *linep = line;
     int ind;
 
@@ -277,13 +292,23 @@ void map_max_country(sinfo *info) {
 }
 
 /**
+* Cancel routine for the reduce thread, prints results of query
+*
+* @param arg
+*
+*/
+static void reduce_cancel(void *v) {
+
+}
+
+/**
 * Reduce controller, calls reduce function for current query
 * 
 * @param v Pointer to head of sinfo linked list
 * @return Pointer to sinfo containing result
 */
-static void* reduce(void* v) {
-    sinfo *head = v;
+static void* reduce(void *v) {
+    pthread_cleanup_push(&reduce_cancel, v);
 
     // Find reduce for current query
     void* (*f_reduce)(sinfo*);
@@ -293,24 +318,25 @@ static void* reduce(void* v) {
         f_reduce = &reduce_avg;
     }
 
-    return (*f_reduce)(head);
+    sinfo *result = v;
+    return (*f_reduce)(result);
 }
 
 // Helper for reduce_avg
 // Returns comparison based on current_query
-char avgcmp(sinfo *a, sinfo *b) {
+static char avgcmp(double a, double b) {
     if (current_query == A || current_query == C) {
-        if (a->average > b->average) {
+        if (a > b) {
             return 1;
-        } else if (a->average < b->average) {
+        } else if (a < b) {
             return -1;
         } else {
             return 0;
         }
     } else {
-        if (a->average < b->average) {
+        if (a < b) {
             return 1;
-        } else if (a->average > b->average) {
+        } else if (a > b) {
             return -1;
         } else {
             return 0;
@@ -319,35 +345,41 @@ char avgcmp(sinfo *a, sinfo *b) {
 }
 
 /**
-* (A/B/C/D) Reduce function for finding max/min average in sinfo
-* linked list, bases result from current_query 
+* (A/B/C/D) Reduce function for finding max/min average in mapred.tmp, 
+* bases result from current_query 
 *
-* @param head Pointer to head of sinfo linked list
-* @return Pointer to sinfo node with max/min average
+* @param result Pointer of sinfo to store result in 
+* @param nrem Number of remaining files to read info about
+* @return Pointer to sinfo containing result
 */
-void *reduce_avg(sinfo *head) {
-    sinfo *cursor = head->next, *result = head;
+static void *reduce_avg(sinfo *result) {
     char res;
-    
-    // Handle trivial cases
-    if (head->next == NULL) {
-        return head;
-    }
+    double avg;
+    result->average = -1;
 
     // Find query result
-    while (cursor != NULL) {
-        // printf("%s: %lf\n%s\n%", cursor->filename, cursor->average);
-        res = avgcmp(cursor, result);
-        if (res > 0) {
-            result = cursor;
-        } 
-        // Equal - pick alphabetical order first
-        else if (res == 0) {
-            if (strcmp(cursor->filename, result->filename) < 0) {
-                result = cursor;
+    char line[LINE_SIZE], *linep;
+    memset(line, 0, LINE_SIZE);
+    while (1) {
+        // Read available info from mapred.tmp 
+        while (s_fgets(line, LINE_SIZE) != NULL) {
+            // Block canceling since there is an entry
+            pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
+            sscanf(line, "%*s,%lf,", &avg);
+            res = avgcmp(avg, head->average);
+            if (res > 0) {
+                result->average = avg;
+            } 
+            // Equal - pick alphabetical order first
+            else if (res == 0) {
+                if (strcmp(cursor->filename, result->filename) < 0) {
+                    result = cursor;
+                }
             }
+            linep = line;
         }
-        cursor = cursor->next;
+        // Enable canceling 
+        pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL)
     }
 
     return result;
@@ -356,10 +388,11 @@ void *reduce_avg(sinfo *head) {
 /**
 * (E) Reduce function for finding country with the most users
 *
-* @param head Pointer to head of sinfo linked list
+* @param result Pointer of sinfo to store result in 
+* @param nrem Number of remaining files to read info about
 * @return Pointer to sinfo node with highest country user count
 */
-void *reduce_max_country(sinfo *head) {
+static void *reduce_max_country(sinfo *result) {
     unsigned int ccount[CCOUNT_SIZE], maxind;
     memset(ccount, 0, CCOUNT_SIZE * sizeof(int));
     
