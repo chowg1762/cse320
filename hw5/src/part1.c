@@ -202,10 +202,11 @@ static void map_avg_user(sinfo *info) {
 
         // Find year from timestamp
         time_t ts = stol(timestamp, strlen(timestamp));
-        struct tm *tm = localtime(&ts);
+        struct tm tm;
+        localtime_r(&ts, &tm);
 
         // Add to nyears if year is new
-        nyears += check_year_used(tm->tm_year, &used_years);
+        nyears += check_year_used(tm.tm_year, &used_years);
         ++nvisits;
         linep = line;
     } 

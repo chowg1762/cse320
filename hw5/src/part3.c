@@ -2,7 +2,7 @@
 #include "part3.h"
 
 sem_t mut_file;
-FILE *mrfile;
+FILE *mrf_write, *mrf_read;
 
 int part3(size_t nthreads) {
     sem_init(&mut_file, 0, 1);
@@ -12,8 +12,6 @@ int part3(size_t nthreads) {
     struct dirent *direp;
     size_t nfiles, rem_files;
 
-    printf("WOW\n");
-
     // Create linked list of sinfo nodes, nfiles long
     sinfo *head = calloc(1, sizeof(sinfo)), *cursor = head;
     for (nfiles = 0; (direp = readdir(dirp)) != NULL; ++nfiles) {
@@ -21,7 +19,7 @@ int part3(size_t nthreads) {
             --nfiles;
             continue;
         }
-        if (nfiles == 1) {
+        if (nfiles == 0) {
             strcpy(head->filename, direp->d_name);
             if (current_query == E) {
                 head->einfo = calloc(CCOUNT_SIZE, sizeof(int));
@@ -37,21 +35,18 @@ int part3(size_t nthreads) {
         cursor->next = new_node;
         cursor = new_node;
     }
+    closedir(dirp);
 
     // Create mapred.tmp for mapping and reducing communication
-    mrfile = fopen(MR_FILENAME, "w+");
-
-    sinfo m, reso;
-    m.file = fopen("./data/51_la.csv", "r");
-    map(&m);
-    reduce(&reso);
-    exit(0);
-
-    printf("WOW\n");
+    mrf_write = fopen(MR_FILENAME, "a");
+    mrf_read = fopen(MR_FILENAME, "r");
 
     // Spawn reduce thread
     pthread_t t_reduce;
     sinfo result;
+    if (current_query == E) {
+        result.einfo = calloc(CCOUNT_SIZE, sizeof(int));
+    }
     pthread_create(&t_reduce, NULL, reduce, &result);
 
     // For all files use an available map thread, joining it after completion
@@ -87,11 +82,12 @@ int part3(size_t nthreads) {
         rem_files -= nthreads;
     }
 
-    // Cancel
+    // Cancel reduce thread since all map threads have been joined
     pthread_cancel(t_reduce);
+    pthread_join(t_reduce, NULL);
 
     // Close and delete mapred.tmp file
-    fclose(mrfile);
+    fclose(mrf_write), fclose(mrf_read);
     unlink(MR_FILENAME);
 
     // Restore resources
@@ -139,14 +135,15 @@ static long stol(char *str, int n) {
 static void s_writeinfo(sinfo *info) {
     sem_wait(&mut_file);
     if (current_query != E) {
-        fprintf(mrfile, "%s,%lf\n", info->filename, info->average);
+        fprintf(mrf_write, "%s %lf\n", info->filename, info->average);
         // printf("%s,%lf\n", info->filename, info->average);
     } else {
-        fprintf(mrfile, "%d,%d\n", info->einfo[(int)info->average], 
+        fprintf(mrf_write, "%d %d\n", info->einfo[(int)info->average], 
         (int)info->average);
         // printf("%s,%d,%d\n", info->filename, info->einfo[(int)info->average], 
         // (int)info->average);
     }
+    fflush(mrf_write);
     sem_post(&mut_file);
 }
 
@@ -155,9 +152,11 @@ static int s_fscanf(void *a, void *b) {
     int r;
     sem_wait(&mut_file);
     if (current_query != E) {
-        r = fscanf(mrfile, "%s,%lf\n", (char*)a, (double*)b);
+        r = fscanf(mrf_read, "%s %lf\n", (char*)a, (double*)b);
+        //printf("%s: %lf\n", (char*)a, *(double*)b);
     } else {
-        r = fscanf(mrfile, "%d,%d\n", (int*)a, (int*)b);
+        r = fscanf(mrf_read, "%d %d\n", (int*)a, (int*)b);
+        //printf("%d: %d\n", *(int*)a, *(int*)b);
     }
     sem_post(&mut_file);
     //r = fgets(buffer, size, mrfile);
@@ -193,9 +192,7 @@ static void* map(void* v) {
     (*f_map)(info);
 
     // Write query info to mapred.tmp
-    printf("pre %s\n", info->filename);
     s_writeinfo(info);
-    printf("post %s\n", info->filename);
 
     fclose(info->file);
     //pthread_exit(0);
@@ -313,16 +310,23 @@ static void map_max_country(sinfo *info) {
 /**
 * Cancel routine for the reduce thread, prints results of query
 *
-* @param v 
-*
+* @param v Pointer to sinfo containing results
 */
 static void reduce_cancel(void *v) {
     sinfo *result = v;
     if (current_query == E) {
-        result->filename[0] = ((int)result->average / 26) + 'A';
-        result->filename[1] = ((int)result->average % 26) + 'A';
+        int max = 0;
+        for (int i = 1; i < CCOUNT_SIZE; ++i) {
+            //printf("%d: %d\n", i, result->einfo[i]);
+            if (result->einfo[i] > result->einfo[max]) {
+                max = i;
+            }
+        }
+
+        result->filename[0] = (max / 26) + 'A';
+        result->filename[1] = (max % 26) + 'A';
         result->filename[2] = '\0';
-        result->average = result->einfo[(int)result->average];
+        result->average = result->einfo[max];
     }
 
     printf(
@@ -331,6 +335,7 @@ static void reduce_cancel(void *v) {
         "Result: %lf, %s\n",
         PART_STRINGS[current_part], QUERY_STRINGS[current_query],
         result->average, result->filename);
+    fflush(NULL);
 }
 
 /**
@@ -354,7 +359,7 @@ static void *reduce(void *v) {
     sinfo *result = v;
     (*f_reduce)(result);
 
-     pthread_cleanup_pop(0);
+     pthread_cleanup_pop(1);
      return NULL;
 }
 
@@ -389,8 +394,11 @@ static char avgcmp(double a, double b) {
 static void reduce_avg(sinfo *result) {
     char res, filename[FILENAME_SIZE];
     double avg;
-    result->average = -1;
-
+    if (current_query == A || current_query == C) {
+        result->average = -1;
+    } else {
+        result->average = 0x7FFFFFFF;
+    }
     // Find query result
     char line[LINE_SIZE];
     memset(line, 0, LINE_SIZE);
@@ -413,7 +421,7 @@ static void reduce_avg(sinfo *result) {
                 }
             }
         }
-        // Enable canceling 
+        // Enable canceling
         pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
     }
 }
@@ -428,13 +436,12 @@ static void reduce_max_country(sinfo *result) {
     int code = -1, count = -1;
     memset(line, 0, LINE_SIZE);
     while (1) {
-        // Read available info from mapred.tmp 
-        while (s_fscanf(&code, &count) != EOF) {
+        // Read line of file and add count to index code 
+        while (s_fscanf(&count, &code) != EOF) {
+            
             // Block canceling since there is an entry
             pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
 
-            // Read line of file and add count to index code
-            sscanf(line, "%d,%d\n", &code, &count);
             result->einfo[code] += count; 
         }
         // Enable canceling 
