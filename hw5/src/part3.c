@@ -136,30 +136,24 @@ static void s_writeinfo(sinfo *info) {
     sem_wait(&mut_file);
     if (current_query != E) {
         fprintf(mrf_write, "%s %lf\n", info->filename, info->average);
-        // printf("%s,%lf\n", info->filename, info->average);
     } else {
         fprintf(mrf_write, "%d %d\n", info->einfo[(int)info->average], 
-        (int)info->average);
-        // printf("%s,%d,%d\n", info->filename, info->einfo[(int)info->average], 
-        // (int)info->average);
+        (int)info->average);;
     }
     fflush(mrf_write);
     sem_post(&mut_file);
 }
 
-// Semaphore locking wrapper for fgets from mapred.tmp
+// Query based reader for reduce
 static int s_fscanf(void *a, void *b) {
     int r;
-    sem_wait(&mut_file);
+    
     if (current_query != E) {
         r = fscanf(mrf_read, "%s %lf\n", (char*)a, (double*)b);
-        //printf("%s: %lf\n", (char*)a, *(double*)b);
     } else {
         r = fscanf(mrf_read, "%d %d\n", (int*)a, (int*)b);
-        //printf("%d: %d\n", *(int*)a, *(int*)b);
     }
-    sem_post(&mut_file);
-    //r = fgets(buffer, size, mrfile);
+
     return r;
 }
 
@@ -195,8 +189,8 @@ static void* map(void* v) {
     s_writeinfo(info);
 
     fclose(info->file);
-    //pthread_exit(0);
     
+    pthread_exit(NULL);
     return NULL;
 }
 
@@ -317,7 +311,6 @@ static void reduce_cancel(void *v) {
     if (current_query == E) {
         int max = 0;
         for (int i = 1; i < CCOUNT_SIZE; ++i) {
-            //printf("%d: %d\n", i, result->einfo[i]);
             if (result->einfo[i] > result->einfo[max]) {
                 max = i;
             }
@@ -336,6 +329,8 @@ static void reduce_cancel(void *v) {
         PART_STRINGS[current_part], QUERY_STRINGS[current_query],
         result->average, result->filename);
     fflush(NULL);
+
+    pthread_exit(EXIT_SUCCESS);
 }
 
 /**
@@ -403,7 +398,9 @@ static void reduce_avg(sinfo *result) {
     char line[LINE_SIZE];
     memset(line, 0, LINE_SIZE);
     while (1) {
-        // Read available info from mapred.tmp 
+        // Want to read - wait for lock to free 
+        sem_wait(&mut_file);
+        // Read available info from mapred.tmp
         while (s_fscanf(filename, &avg) != EOF) {
             // Block canceling since there is an entry
             pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
@@ -421,6 +418,8 @@ static void reduce_avg(sinfo *result) {
                 }
             }
         }
+        // Done reading - release lock
+        sem_post(&mut_file);
         // Enable canceling
         pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
     }
@@ -438,10 +437,11 @@ static void reduce_max_country(sinfo *result) {
     while (1) {
         // Read line of file and add count to index code 
         while (s_fscanf(&count, &code) != EOF) {
-            
+
             // Block canceling since there is an entry
             pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
 
+            // Add count to country code
             result->einfo[code] += count; 
         }
         // Enable canceling 

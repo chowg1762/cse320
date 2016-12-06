@@ -10,7 +10,7 @@
 #define CCOUNT_SIZE 675
 #define TIMESTAMP_SIZE 9
 
-extern sem_t mut_file;
+extern sem_t mut_pdcr, mut_buf;
 
 typedef struct sinfo {
     FILE *file;
@@ -20,6 +20,8 @@ typedef struct sinfo {
     void *t_return;
     struct sinfo *next;
 } sinfo;
+
+extern sinfo *buf_head, *buf_cursor;
 
 /**
 * Map controller, calls map function for current query,
