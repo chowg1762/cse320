@@ -3,6 +3,7 @@
 
 #include <time.h>
 
+#define THREADNAME_SIZE 7
 #define FILENAME_SIZE 256
 #define LINE_SIZE 48
 #define CCOUNT_SIZE 675
@@ -16,6 +17,8 @@ typedef struct sinfo {
     void *t_return;
     struct sinfo *next;
 } sinfo;
+
+/********* Map functions *********/
 
 /**
 * Map controller, calls map function for current query,
@@ -53,6 +56,8 @@ static void map_avg_user(sinfo *info);
 */
 static void map_max_country(sinfo *info);
 
+/******* Reduce functions *******/
+
 /**
 * Reduce controller, calls reduce function for current query
 * 
@@ -77,5 +82,13 @@ static void *reduce_avg(sinfo *head);
 * @return Pointer todo
 */
 static void *reduce_max_country(sinfo *head);
+
+/**
+* Makes a linked list of sinfo nodes, returns the length of the list
+*
+* @param head Pointer to sinfo pointer where head pointer will be stored
+* @return Number of files found in data dir (length of list created)
+*/
+static int make_files_list(sinfo **head);
 
 #endif

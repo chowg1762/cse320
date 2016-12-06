@@ -2,43 +2,16 @@
 #include "parts1_2.h"
 
 int part2(size_t nthreads) {
-    // Find all files in data directory and store in array
-    DIR *dirp = opendir(DATA_DIR);
-    struct dirent *direp;
-    size_t nfiles;
-
+    
     // Create linked list of sinfo nodes, nfiles long
-    sinfo *head = calloc(1, sizeof(sinfo)), *cursor = head;
-    for (nfiles = 0; (direp = readdir(dirp)) != NULL; ++nfiles) {
-        if (direp->d_name[0] == '.') {
-            --nfiles;
-            continue;
-        }
-        if (nfiles == 1) {
-            strcpy(head->filename, direp->d_name);
-            if (current_query == E) {
-                head->einfo = calloc(CCOUNT_SIZE, sizeof(int));
-            }
-            continue;
-        }
-        sinfo *new_node = calloc(1, sizeof(sinfo));
-        strcpy(new_node->filename, direp->d_name);
-        if (current_query == E) {
-            new_node->einfo = calloc(CCOUNT_SIZE, sizeof(int));
-        }
-        
-        cursor->next = new_node;
-        cursor = new_node;
-    }
+    sinfo *head;
+    int nfiles = make_files_list(&head);
 
     pthread_t t_readers[nthreads];
-    size_t rem_files = nfiles;
-    char rel_filepath[FILENAME_SIZE];
-    strcpy(rel_filepath, "./");
-    strcpy(rel_filepath + 2, DATA_DIR);
-    strcpy(rel_filepath + 6, "/");
-    sinfo *marker;
-    cursor = head;
+    int rem_files = nfiles;
+    char rel_filepath[FILENAME_SIZE], threadname[THREADNAME_SIZE];
+    sprintf(rel_filepath, "./%s/", DATA_DIR);
+    sinfo *marker, *cursor = head;
     while (rem_files > 0) {
         // Spawn threads: nthreads or rem_files
         marker = cursor;
@@ -49,7 +22,10 @@ int part2(size_t nthreads) {
                 exit(EXIT_FAILURE);
             }
 
+            // Create and name map thread
             pthread_create(&t_readers[i], NULL, map, cursor);
+            sprintf(threadname, "%s%d", "map", i + 2);
+            pthread_setname_np(t_readers[i], threadname);
             cursor = cursor->next;
         }
 
@@ -91,6 +67,40 @@ int part2(size_t nthreads) {
     }
 
     return 0;
+}
+
+/**
+* Makes a linked list of sinfo nodes, returns the length of the list
+*
+* @param head Pointer to sinfo pointer where head pointer will be stored
+* @return Number of files found in data dir (length of list created)
+*/
+static int make_files_list(sinfo **head) {
+    int nfiles;
+
+    // Open data directory
+    DIR *dir = opendir(DATA_DIR);
+    struct dirent *direp;
+    
+    // For every file found, add a node containing the filename
+    for (nfiles = 0; (direp = readdir(dir)) != NULL; ++nfiles) {
+        if (direp->d_name[0] == '.') {
+            --nfiles;
+            continue;
+        }
+        
+        sinfo *new_node = calloc(1, sizeof(sinfo));
+        strcpy(new_node->filename, direp->d_name);
+        if (current_query == E) {
+            new_node->einfo = calloc(CCOUNT_SIZE, sizeof(int));
+        }
+
+        new_node->next = *head;
+        *head = new_node;
+    }
+
+    closedir(dir);
+    return nfiles;
 }
 
 /**
@@ -201,6 +211,8 @@ static void map_avg_user(sinfo *info) {
     char line[LINE_SIZE], *linep = line, *timestamp;
     int nvisits = 0, nyears = 0;
     unsigned long used_years = 0;
+    time_t ts;
+    struct tm tm;
     
     // For all lines in file
     while (fgets(line, LINE_SIZE, info->file) != NULL) {
@@ -208,8 +220,7 @@ static void map_avg_user(sinfo *info) {
         timestamp = strsep(&linep, ",");
 
         // Find year from timestamp
-        time_t ts = stol(timestamp, strlen(timestamp));
-        struct tm tm;
+        ts = stol(timestamp, strlen(timestamp));
         localtime_r(&ts, &tm);
 
         // Add to nyears if year is new
@@ -217,7 +228,6 @@ static void map_avg_user(sinfo *info) {
         ++nvisits;
         linep = line;
     } 
-
     // Find average users
     info->average = (double)nvisits / nyears;
 }

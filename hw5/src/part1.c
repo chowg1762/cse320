@@ -2,50 +2,26 @@
 #include "parts1_2.h"
 
 int part1() {
-    // Find all files in data directory and store in array
-    DIR *dirp = opendir(DATA_DIR);
-    struct dirent *direp;
-    size_t nfiles;
-
+    
     // Create linked list of sinfo nodes, nfiles long
-    sinfo *head = calloc(1, sizeof(sinfo)), *cursor = head;
-    for (nfiles = 0; (direp = readdir(dirp)) != NULL; ++nfiles) {
-        if (direp->d_name[0] == '.') {
-            --nfiles;
-            continue;
-        }
-        if (nfiles == 1) {
-            strcpy(head->filename, direp->d_name);
-            if (current_query == E) {
-                head->einfo = calloc(CCOUNT_SIZE, sizeof(int));
-            }
-            continue;
-        }
-        sinfo *new_node = calloc(1, sizeof(sinfo));
-        strcpy(new_node->filename, direp->d_name);
-        if (current_query == E) {
-            new_node->einfo = calloc(CCOUNT_SIZE, sizeof(int));
-        }
-        
-        cursor->next = new_node;
-        cursor = new_node;
-    }
+    sinfo *head;
+    int nfiles = make_files_list(&head);
 
     // Spawn a thread for each file found and store in array
     pthread_t t_readers[nfiles];
-    char rel_filepath[FILENAME_SIZE];
-    strcpy(rel_filepath, "./");
-    strcpy(rel_filepath + 2, DATA_DIR);
-    strcpy(rel_filepath + 6, "/");
-    cursor = head;
+    char rel_filepath[FILENAME_SIZE], threadname[THREADNAME_SIZE];
+    sprintf(rel_filepath, "./%s/", DATA_DIR);
+    sinfo *cursor = head;
     for (int i = 0; i < nfiles; ++i) {
         strcpy(rel_filepath + 7, cursor->filename);
         cursor->file = fopen(rel_filepath, "r");
         if (cursor->file == NULL) {
             exit(EXIT_FAILURE);
         } 
-
+        // Spawn and name map thread 
         pthread_create(&t_readers[i], NULL, map, cursor);
+        sprintf(threadname, "%s%d", "map", i + 2);
+        pthread_setname_np(t_readers[i], threadname);
         cursor = cursor->next;
     }
 
@@ -84,6 +60,40 @@ int part1() {
     }
 
     return 0;
+}
+
+/**
+* Makes a linked list of sinfo nodes, returns the length of the list
+*
+* @param head Pointer to sinfo pointer where head pointer will be stored
+* @return Number of files found in data dir (length of list created)
+*/
+static int make_files_list(sinfo **head) {
+    int nfiles;
+
+    // Open data directory
+    DIR *dir = opendir(DATA_DIR);
+    struct dirent *direp;
+    
+    // For every file found, add a node containing the filename
+    for (nfiles = 0; (direp = readdir(dir)) != NULL; ++nfiles) {
+        if (direp->d_name[0] == '.') {
+            --nfiles;
+            continue;
+        }
+        
+        sinfo *new_node = calloc(1, sizeof(sinfo));
+        strcpy(new_node->filename, direp->d_name);
+        if (current_query == E) {
+            new_node->einfo = calloc(CCOUNT_SIZE, sizeof(int));
+        }
+
+        new_node->next = *head;
+        *head = new_node;
+    }
+
+    closedir(dir);
+    return nfiles;
 }
 
 /**

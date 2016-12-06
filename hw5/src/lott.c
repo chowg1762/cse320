@@ -1,8 +1,8 @@
 #include "lott.h"
 
 int main(int argc, char const* argv[]) {
-    current_query = A;
-    part4(4);
+    current_query = C;
+    part1();
 
     if (argc < 3) {
         fprintf(stderr, "%s\n", "No query specified");

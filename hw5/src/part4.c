@@ -7,66 +7,49 @@ sinfo *buf_head;
 
 int part4(size_t nthreads) {
 
+    if (nthreads < 1) {
+        return -1;
+    }
+
     // Initialize semaphores
     sem_init(&mut_pdcr, 0, 1), sem_init(&mut_buf, 0, 1);
 
-    // Find all files in data directory and store in array
-    DIR *dirp = opendir(DATA_DIR);
-    struct dirent *direp;
-    size_t nfiles, rem_files;
-
     // Create linked list of sinfo nodes, nfiles long
-    sinfo *head = calloc(1, sizeof(sinfo)), *cursor = head;
-    for (nfiles = 0; (direp = readdir(dirp)) != NULL; ++nfiles) {
-        if (direp->d_name[0] == '.') {
-            --nfiles;
-            continue;
-        }
-        if (nfiles == 0) {
-            strcpy(head->filename, direp->d_name);
-            if (current_query == E) {
-                head->einfo = calloc(CCOUNT_SIZE, sizeof(int));
-            }
-            continue;
-        }
-        sinfo *new_node = calloc(1, sizeof(sinfo));
-        strcpy(new_node->filename, direp->d_name);
-        if (current_query == E) {
-            new_node->einfo = calloc(CCOUNT_SIZE, sizeof(int));
-        }
-        
-        cursor->next = new_node;
-        cursor = new_node;
-    }
-    closedir(dirp);
+    sinfo *head;
+    int nfiles = make_files_list(&head);
 
-    // Spawn reduce thread
+    // Spawn and name reduce thread
     pthread_t t_reduce;
+    char threadname[THREADNAME_SIZE] = {'r','e','d','u','c','e','\0'};
     sinfo result;
     memset(&result, 0, sizeof(sinfo));
     if (current_query == E) {
         result.einfo = calloc(CCOUNT_SIZE, sizeof(int));
     }
     pthread_create(&t_reduce, NULL, reduce, &result);
+    pthread_setname_np(t_reduce, threadname);
 
     // For all files use an available map thread, joining it after completion
     pthread_t t_maps[nthreads];
-    rem_files = nfiles;
+    int rem_files = nfiles;
     char rel_filepath[FILENAME_SIZE];
-    strcpy(rel_filepath, "./");
-    strcpy(rel_filepath + 2, DATA_DIR);
-    strcpy(rel_filepath + 6, "/");
-    cursor = head;
+    sprintf(rel_filepath, "./%s/", DATA_DIR);
+    sinfo *cursor = head;
+    // For all files in data dir
     while (rem_files > 0) {
         // Spawn threads: nthreads or rem_files
         for (int i = 0; i < rem_files && i < nthreads; ++i) {
+            // Open file to map
             strcpy(rel_filepath + 7, cursor->filename);
             cursor->file = fopen(rel_filepath, "r");
             if (cursor->file == NULL) {
                 exit(EXIT_FAILURE);
             }
 
+            // Spawn and name map thread, passing an sinfo node
             pthread_create(&t_maps[i], NULL, map, cursor);
+            sprintf(threadname, "%s%d", "map", i);
+            pthread_setname_np(t_maps[i], threadname);
             cursor = cursor->next;
         }
 
@@ -103,6 +86,40 @@ int part4(size_t nthreads) {
     return 0;
 }
 
+/**
+* Makes a linked list of sinfo nodes, returns the length of the list
+*
+* @param head Pointer to sinfo pointer where head pointer will be stored
+* @return Number of files found in data dir (length of list created)
+*/
+static int make_files_list(sinfo **head) {
+    int nfiles;
+
+    // Open data directory
+    DIR *dir = opendir(DATA_DIR);
+    struct dirent *direp;
+    
+    // For every file found, add a node containing the filename
+    for (nfiles = 0; (direp = readdir(dir)) != NULL; ++nfiles) {
+        if (direp->d_name[0] == '.') {
+            --nfiles;
+            continue;
+        }
+        
+        sinfo *new_node = calloc(1, sizeof(sinfo));
+        strcpy(new_node->filename, direp->d_name);
+        if (current_query == E) {
+            new_node->einfo = calloc(CCOUNT_SIZE, sizeof(int));
+        }
+
+        new_node->next = *head;
+        *head = new_node;
+    }
+
+    closedir(dir);
+    return nfiles;
+}
+
 // Converts string to integer
 static int stoi(char *str, int n) {
     int num = 0;
@@ -129,6 +146,7 @@ static void s_storeinfo(sinfo *info) {
     sem_wait(&mut_pdcr);
     if (++nproducers == 1) {
         // Only producer here - wait for access lock
+        //printf("Locked\n");
         sem_wait(&mut_buf);
     }
     // Let others change nproducers
@@ -141,6 +159,7 @@ static void s_storeinfo(sinfo *info) {
     sem_wait(&mut_pdcr);
     if (--nproducers == 0) {
         // Only producer here - free access lock
+        //printf("Unlocked\n");
         sem_post(&mut_buf);
     }
     sem_post(&mut_pdcr);
@@ -150,6 +169,7 @@ static void s_storeinfo(sinfo *info) {
 static int s_consumeinfo(sinfo **info) {
     int r = 0;
     // Wait for all producers to free access lock
+    usleep(1);
     sem_wait(&mut_buf);
 
     // Consume from global buffer list
@@ -160,7 +180,7 @@ static int s_consumeinfo(sinfo **info) {
         r = 0;
     }
 
-    // Free access lock 
+    // Free access lock
     sem_post(&mut_buf);
     return r;
 }
@@ -191,9 +211,9 @@ static void* map(void* v) {
     }
 
     // Call map for query
-    // printf("Pre call: %s\n", info->filename);
+     //printf("Pre call: %s\n", info->filename);
     (*f_map)(info);
-    // printf("Post call: %s\n", info->filename);
+     //printf("Post call: %s\n", info->filename);
 
     // Store info to global buffer list
     s_storeinfo(info);
@@ -258,6 +278,8 @@ static void map_avg_user(sinfo *info) {
     char line[LINE_SIZE], *linep = line, *timestamp;
     int nvisits = 0, nyears = 0;
     unsigned long used_years = 0;
+    time_t ts;
+    struct tm tm;
     
     // For all lines in file
     while (fgets(line, LINE_SIZE, info->file) != NULL) {
@@ -265,15 +287,14 @@ static void map_avg_user(sinfo *info) {
         timestamp = strsep(&linep, ",");
 
         // Find year from timestamp
-        time_t ts = stol(timestamp, strlen(timestamp));
-        struct tm *tm = localtime(&ts);
+        ts = stol(timestamp, strlen(timestamp));
+        localtime_r(&ts, &tm);
 
         // Add to nyears if year is new
-        nyears += check_year_used(tm->tm_year, &used_years);
+        nyears += check_year_used(tm.tm_year, &used_years);
         ++nvisits;
         linep = line;
     } 
-
     // Find average users
     info->average = (double)nvisits / nyears;
 }
@@ -397,6 +418,9 @@ static char avgcmp(double a, double b) {
 static void reduce_avg(sinfo *result) {
     sinfo *cursor = NULL;
     char res;
+    if (current_query == B || current_query == D) {
+        result->average = 0x7FFFFFFF;
+    }
 
     // Until cancelled
     while (1) {
@@ -431,7 +455,6 @@ static void reduce_avg(sinfo *result) {
 */
 static void reduce_max_country(sinfo *result) {
     sinfo *cursor = NULL;
-    int *code = (int*)(&result->average);
     
     // Until cancelled
     while (1) {
@@ -441,8 +464,10 @@ static void reduce_max_country(sinfo *result) {
             // Block canceling since there is an entry
             pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
   
+            
             // Add count to country code
-            result->einfo[*code] += cursor->einfo[*code]; 
+            result->einfo[(int)cursor->average] += 
+            cursor->einfo[(int)cursor->average]; 
         }
         // Enable canceling 
         pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
