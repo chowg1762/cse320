@@ -5,7 +5,7 @@ sem_t mut_pdcr, mut_buf;
 int nproducers;
 sinfo *buf_head;
 
-int part4(size_t nthreads){
+int part4(size_t nthreads) {
 
     // Initialize semaphores
     sem_init(&mut_pdcr, 0, 1), sem_init(&mut_buf, 0, 1);
@@ -43,6 +43,7 @@ int part4(size_t nthreads){
     // Spawn reduce thread
     pthread_t t_reduce;
     sinfo result;
+    memset(&result, 0, sizeof(sinfo));
     if (current_query == E) {
         result.einfo = calloc(CCOUNT_SIZE, sizeof(int));
     }
@@ -159,7 +160,7 @@ static int s_consumeinfo(sinfo **info) {
         r = 0;
     }
 
-    // Free access lock
+    // Free access lock 
     sem_post(&mut_buf);
     return r;
 }
@@ -190,9 +191,9 @@ static void* map(void* v) {
     }
 
     // Call map for query
-    printf("Pre call: %s\n", info->filename);
+    // printf("Pre call: %s\n", info->filename);
     (*f_map)(info);
-    printf("Post call: %s\n", info->filename);
+    // printf("Post call: %s\n", info->filename);
 
     // Store info to global buffer list
     s_storeinfo(info);
@@ -401,19 +402,20 @@ static void reduce_avg(sinfo *result) {
     while (1) {
         // Consume available info from global buffer list
         while (s_consumeinfo(&cursor)) {
-            printf("-----------------------%s\n", cursor->filename);
             // Block canceling since there is an entry
             pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
 
             // Compare with current best
             res = avgcmp(cursor->average, result->average);
             if (res > 0) {
-                result = cursor;
-            } 
+                result->average = cursor->average;
+                strcpy(result->filename, cursor->filename);
+            }
             // Equal - pick alphabetical order first
             else if (res == 0) {
                 if (strcmp(cursor->filename, result->filename) < 0) {
-                    result = cursor;
+                    result->average = cursor->average;
+                    strcpy(result->filename, cursor->filename);
                 }
             }
         }
