@@ -37,6 +37,9 @@ int part3(size_t nthreads) {
         if (i < nfiles_rem) {
             ++args[i].nfiles;
         }
+        if (args[i].nfiles == 0) {
+            break;
+        }
 
         // Set new sub-list head
         args[i].head = cursor;

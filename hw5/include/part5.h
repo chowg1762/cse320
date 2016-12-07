@@ -1,7 +1,10 @@
-#ifndef PART4_H
-#define PART4_H
+#ifndef PART5_H
+#define PART5_H
 
 #include <semaphore.h>
+#include <sys/poll.h>
+#include <sys/socket.h>
+#include <sys/types.h>
 #include <time.h>
 
 #define CCOUNT_SIZE 675
@@ -30,13 +33,11 @@ typedef struct sinfo {
 typedef struct margs {
     int nfiles;
     sinfo *head;
+    int sockfd;
 } margs;
 
-// Global list buffer
-extern sinfo *buf_head, *buf_cursor;
-
-// Semaphores for global buffer access
-extern sem_t mut_pdcr, mut_buf;
+// Semaphore for file access
+extern sem_t mut_;
 
 /********* Map functions *********/
 

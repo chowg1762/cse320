@@ -1,5 +1,5 @@
-#ifndef MAPRED_H
-#define MAPRED_H
+#ifndef PART3_H
+#define PART3_H
 
 #include <semaphore.h>
 #include <time.h>
