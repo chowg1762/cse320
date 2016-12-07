@@ -221,7 +221,6 @@ static void* map(void* v) {
     sprintf(filepath, "./%s/", DATA_DIR);
     for (int i = 0; i < args->nfiles; ++i) {
         // Open file
-        //printf("%d\n", args->nfiles);
         strcpy(filepath + 7, info->filename);
         info->file = fopen(filepath, "r");
         if (info->file == NULL) {
@@ -256,9 +255,11 @@ static void map_avg_dur(sinfo *info) {
     
     // For all lines in file
     while (fgets(line, LINE_SIZE, info->file) != NULL) {
+        
         // Find duration segment of line
         strsep(&linep, ","), strsep(&linep, ",");
         durstr = strsep(&linep, ",");
+        
         // Add duration to total
         duration += stoi(durstr, strlen(durstr));
         linep = line;
@@ -301,6 +302,7 @@ static void map_avg_user(sinfo *info) {
     
     // For all lines in file
     while (fgets(line, LINE_SIZE, info->file) != NULL) {
+        
         // Find timestamp segment of line
         timestamp = strsep(&linep, ",");
 
@@ -329,6 +331,7 @@ static void map_max_country(sinfo *info) {
 
     // For all lines in file
     while (fgets(line, LINE_SIZE, info->file) != NULL) {
+        
         // Find country code segment of line
         strsep(&linep, ","), strsep(&linep, ","), strsep(&linep, ",");
          
@@ -443,6 +446,7 @@ static void reduce_avg(sinfo *result) {
     while (1) {
         // Consume available info from global buffer list
         while (s_consumeinfo(&cursor)) {
+            
             // Block canceling since there is an entry
             pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
 
@@ -475,6 +479,7 @@ static void reduce_max_country(sinfo *result) {
     
     // Until cancelled
     while (1) {
+        
         // Read line of file and add count to index code 
         while (s_consumeinfo(&cursor)) {
 

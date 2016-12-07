@@ -235,6 +235,7 @@ static void* map(void* v) {
     char filepath[FILENAME_SIZE];
     sprintf(filepath, "./%s/", DATA_DIR);
     for (int i = 0; i < args->nfiles; ++i) {
+        
         // Open file
         strcpy(filepath + 7, info->filename);
         info->file = fopen(filepath, "r");
@@ -243,9 +244,7 @@ static void* map(void* v) {
         }
 
         // Call map for query
-        // printf("Pre call %s\n", info->filename);
         (*f_map)(info);
-        // printf("Post call %s\n", info->filename);
 
         // Write file info to mapred.tmp
         s_writeinfo(args->pollfd, info);
@@ -271,9 +270,11 @@ static void map_avg_dur(sinfo *info) {
     
     // For all lines in file
     while (fgets(line, LINE_SIZE, info->file) != NULL) {
+        
         // Find duration segment of line
         strsep(&linep, ","), strsep(&linep, ",");
         durstr = strsep(&linep, ",");
+        
         // Add duration to total
         duration += stoi(durstr, strlen(durstr));
         linep = line;
@@ -316,6 +317,7 @@ static void map_avg_user(sinfo *info) {
     
     // For all lines in file
     while (fgets(line, LINE_SIZE, info->file) != NULL) {
+        
         // Find timestamp segment of line
         timestamp = strsep(&linep, ",");
 
@@ -344,6 +346,7 @@ static void map_max_country(sinfo *info) {
 
     // For all lines in file
     while (fgets(line, LINE_SIZE, info->file) != NULL) {
+        
         // Find country code segment of line
         strsep(&linep, ","), strsep(&linep, ","), strsep(&linep, ",");
          
@@ -459,11 +462,14 @@ static void reduce_avg(rargs *args) {
     char line[LINE_SIZE];
     memset(line, 0, LINE_SIZE);
     while (1) {
+        
         // Read available info from mapred.tmp
         while (s_readinfo(args->pollfds, args->nthreads, 
         filename, &avg) != 0) {
+            
             // Block canceling since there is an entry
             pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
+            
             // Read line of file and compare with current selection
             res = avgcmp(avg, result->average);
             if (res > 0) {
@@ -494,6 +500,7 @@ static void reduce_max_country(rargs *args) {
     int code = -1, count = -1;
     memset(line, 0, LINE_SIZE);
     while (1) {
+        
         // Read line of file and add count to index code 
         while (s_readinfo(args->pollfds, args->nthreads, &count, &code) != 0) {
 

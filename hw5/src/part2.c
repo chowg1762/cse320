@@ -145,6 +145,7 @@ static void* map(void* v) {
     char filepath[FILENAME_SIZE];
     sprintf(filepath, "./%s/", DATA_DIR);
     for (int i = 0; i < args->nfiles; ++i) {
+       
         // Open File
         strcpy(filepath + 7, info->filename);
         info->file = fopen(filepath, "r");
@@ -196,9 +197,11 @@ static void map_avg_dur(sinfo *info) {
     
     // For all lines in file
     while (fgets(line, LINE_SIZE, info->file) != NULL) {
+        
         // Find duration segment of line
         strsep(&linep, ","), strsep(&linep, ",");
         durstr = strsep(&linep, ",");
+       
         // Add duration to total
         duration += stoi(durstr, strlen(durstr));
         linep = line;
@@ -241,6 +244,7 @@ static void map_avg_user(sinfo *info) {
     
     // For all lines in file
     while (fgets(line, LINE_SIZE, info->file) != NULL) {
+        
         // Find timestamp segment of line
         timestamp = strsep(&linep, ",");
 
@@ -269,6 +273,7 @@ static void map_max_country(sinfo *info) {
 
     // For all lines in file
     while (fgets(line, LINE_SIZE, info->file) != NULL) {
+        
         // Find country code segment of line
         strsep(&linep, ","), strsep(&linep, ","), strsep(&linep, ",");
          
@@ -341,7 +346,7 @@ static void *reduce_avg(sinfo *head) {
 
     // Find query result
     while (cursor != NULL) {
-        // printf("%s: %lf\n%s\n%", cursor->filename, cursor->average);
+        
         res = avgcmp(cursor, result);
         if (res > 0) {
             result = cursor;
@@ -370,6 +375,7 @@ static void *reduce_max_country(sinfo *head) {
     
     sinfo *cursor = head;
     while (cursor != NULL) {
+        
         // Find index of max country user count
         maxind = 0;
         for (int i = 1; i < CCOUNT_SIZE; ++i) {

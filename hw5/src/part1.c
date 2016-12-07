@@ -12,12 +12,15 @@ int part1() {
     char rel_filepath[FILENAME_SIZE], threadname[THREADNAME_SIZE];
     sprintf(rel_filepath, "./%s/", DATA_DIR);
     sinfo *cursor = head;
-    for (int i = 0; i < nfiles; ++i) {
+    for (int i = 0; i < nfiles; ++i) { 
+
+        // Open file for new map thread
         strcpy(rel_filepath + 7, cursor->filename);
         cursor->file = fopen(rel_filepath, "r");
         if (cursor->file == NULL) {
             exit(EXIT_FAILURE);
         } 
+
         // Spawn and name map thread 
         pthread_create(&t_readers[i], NULL, map, cursor);
         sprintf(threadname, "%s%d", "map", i + 2);
@@ -159,9 +162,11 @@ static void map_avg_dur(sinfo *info) {
     
     // For all lines in file
     while (fgets(line, LINE_SIZE, info->file) != NULL) {
+        
         // Find duration segment of line
         strsep(&linep, ","), strsep(&linep, ",");
         durstr = strsep(&linep, ",");
+        
         // Add duration to total
         duration += stoi(durstr, strlen(durstr));
         linep = line;
@@ -202,6 +207,7 @@ static void map_avg_user(sinfo *info) {
     
     // For all lines in file
     while (fgets(line, LINE_SIZE, info->file) != NULL) {
+        
         // Find timestamp segment of line
         timestamp = strsep(&linep, ",");
 
@@ -232,6 +238,7 @@ static void map_max_country(sinfo *info) {
 
     // For all lines in file
     while (fgets(line, LINE_SIZE, info->file) != NULL) {
+        
         // Find country code segment of line
         strsep(&linep, ","), strsep(&linep, ","), strsep(&linep, ",");
          
@@ -304,6 +311,7 @@ static void *reduce_avg(sinfo *head) {
 
     // Find query result
     while (cursor != NULL) {
+        
         // printf("%s: %lf\n%s\n%", cursor->filename, cursor->average);
         res = avgcmp(cursor, result);
         if (res > 0) {
@@ -333,6 +341,7 @@ static void *reduce_max_country(sinfo *head) {
     
     sinfo *cursor = head;
     while (cursor != NULL) {
+        
         // Find index of max country user count
         maxind = 0;
         for (int i = 1; i < CCOUNT_SIZE; ++i) {

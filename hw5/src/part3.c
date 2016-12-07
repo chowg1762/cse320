@@ -159,6 +159,7 @@ static void s_writeinfo(sinfo *info) {
         (int)info->average);
     }
     fflush(mrf_write);
+    
     // Free lock on file
     sem_post(&mut_file);
 }
@@ -205,6 +206,7 @@ static void* map(void* v) {
     char filepath[FILENAME_SIZE];
     sprintf(filepath, "./%s/", DATA_DIR);
     for (int i = 0; i < args->nfiles; ++i) {
+        
         // Open file
         strcpy(filepath + 7, info->filename);
         info->file = fopen(filepath, "r");
@@ -239,9 +241,11 @@ static void map_avg_dur(sinfo *info) {
     
     // For all lines in file
     while (fgets(line, LINE_SIZE, info->file) != NULL) {
+        
         // Find duration segment of line
         strsep(&linep, ","), strsep(&linep, ",");
         durstr = strsep(&linep, ",");
+       
         // Add duration to total
         duration += stoi(durstr, strlen(durstr));
         linep = line;
@@ -284,6 +288,7 @@ static void map_avg_user(sinfo *info) {
     
     // For all lines in file
     while (fgets(line, LINE_SIZE, info->file) != NULL) {
+        
         // Find timestamp segment of line
         timestamp = strsep(&linep, ",");
 
@@ -312,6 +317,7 @@ static void map_max_country(sinfo *info) {
 
     // For all lines in file
     while (fgets(line, LINE_SIZE, info->file) != NULL) {
+        
         // Find country code segment of line
         strsep(&linep, ","), strsep(&linep, ","), strsep(&linep, ",");
          
@@ -426,12 +432,16 @@ static void reduce_avg(sinfo *result) {
     char line[LINE_SIZE];
     memset(line, 0, LINE_SIZE);
     while (1) {
+        
         // Want to read - wait for lock to free 
         sem_wait(&mut_file);
+        
         // Read available info from mapred.tmp
         while (s_fscanf(filename, &avg) != EOF) {
+            
             // Block canceling since there is an entry
             pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
+            
             // Read line of file and compare with current selection
             res = avgcmp(avg, result->average);
             if (res > 0) {
@@ -446,8 +456,10 @@ static void reduce_avg(sinfo *result) {
                 }
             }
         }
+        
         // Done reading - release lock
         sem_post(&mut_file);
+        
         // Enable canceling
         pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
     }
