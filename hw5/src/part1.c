@@ -4,7 +4,7 @@
 int part1() {
     
     // Create linked list of sinfo nodes, nfiles long
-    sinfo *head;
+    sinfo *head = NULL;
     int nfiles = make_files_list(&head);
 
     // Spawn a thread for each file found and store in array
@@ -98,8 +98,7 @@ static int make_files_list(sinfo **head) {
 * Map controller, calls map function for current query,
 * Acts as start routine for created threads 
 *
-* @param v Pointer to input file
-* @return Pointer to sinfo struct
+* @param v Pointer to sinfo struct
 */
 static void* map(void* v) {
     sinfo *info = v;
@@ -152,7 +151,6 @@ static long stol(char *str, int n) {
 * (A/B) Map function for finding average duration of visit, sets average in 
 * passed sinfo node
 * 
-* @param file Pointer to open website csv file
 * @param info Pointer to sinfo node to store average in 
 */
 static void map_avg_dur(sinfo *info) {
@@ -195,7 +193,6 @@ static int check_year_used(int year, unsigned long *used_years) {
 * (C/D) Map function for finding average users per year, sets average
 * in passed sinfo node
 *
-* @param file Pointer to open website csv file
 * @param info Pointer to sinfo node to store average in 
 */
 static void map_avg_user(sinfo *info) {
@@ -227,7 +224,6 @@ static void map_avg_user(sinfo *info) {
 * (E) Map function for finding country count, creates linked list for all 
 * countries 
 * 
-* @param file Pointer to open website csv file
 * @param info Pointer to sinfo node to store country counts list in
 */
 static void map_max_country(sinfo *info) {

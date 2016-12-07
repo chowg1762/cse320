@@ -195,8 +195,7 @@ static int s_consumeinfo(sinfo **info) {
 * Map controller, calls map function for current query,
 * Acts as start routine for created threads 
 *
-* @param v Pointer to input file
-* @return Pointer to sinfo struct
+* @param v Pointer to margs container for map arguments
 */
 static void* map(void* v) {
     margs *args = v;
@@ -249,7 +248,6 @@ static void* map(void* v) {
 * (A/B) Map function for finding average duration of visit, sets average in 
 * passed sinfo node
 * 
-* @param file Pointer to open website csv file
 * @param info Pointer to sinfo node to store average in 
 */
 static void map_avg_dur(sinfo *info) {
@@ -292,7 +290,6 @@ static int check_year_used(int year, unsigned long *used_years) {
 * (C/D) Map function for finding average users per year, sets average
 * in passed sinfo node
 *
-* @param file Pointer to open website csv file
 * @param info Pointer to sinfo node to store average in 
 */
 static void map_avg_user(sinfo *info) {
@@ -324,7 +321,6 @@ static void map_avg_user(sinfo *info) {
 * (E) Map function for finding country count, creates linked list for all 
 * countries 
 * 
-* @param file Pointer to open website csv file
 * @param info Pointer to sinfo node to store country counts list in
 */
 static void map_max_country(sinfo *info) {

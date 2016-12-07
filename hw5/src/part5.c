@@ -210,8 +210,7 @@ static int s_readinfo(struct pollfd *pfds, int npfds, void *a, void *b) {
 * Map controller, calls map function for current query,
 * Acts as start routine for created threads 
 *
-* @param v Pointer to input file
-* @return Pointer to sinfo struct
+* @param v Pointer to margs container for map arguments
 */
 static void* map(void* v) {
     margs *args = v;
@@ -264,7 +263,6 @@ static void* map(void* v) {
 * (A/B) Map function for finding average duration of visit, sets average in 
 * passed sinfo node
 * 
-* @param file Pointer to open website csv file
 * @param info Pointer to sinfo node to store average in 
 */
 static void map_avg_dur(sinfo *info) {
@@ -307,7 +305,6 @@ static int check_year_used(int year, unsigned long *used_years) {
 * (C/D) Map function for finding average users per year, sets average
 * in passed sinfo node
 *
-* @param file Pointer to open website csv file
 * @param info Pointer to sinfo node to store average in 
 */
 static void map_avg_user(sinfo *info) {
@@ -339,7 +336,6 @@ static void map_avg_user(sinfo *info) {
 * (E) Map function for finding country count, creates linked list for all 
 * countries 
 * 
-* @param file Pointer to open website csv file
 * @param info Pointer to sinfo node to store country counts list in
 */
 static void map_max_country(sinfo *info) {
@@ -401,8 +397,7 @@ static void reduce_cancel(void *v) {
 /**
 * Reduce controller, calls reduce function for current query
 * 
-* @param v Pointer to head of sinfo linked list
-* @return Pointer to sinfo containing result
+* @param v Pointer to rargs container for reduce arguments
 */
 static void *reduce(void *v) {
     rargs *args = v;
@@ -449,7 +444,7 @@ static char avgcmp(double a, double b) {
 * (A/B/C/D) Reduce function for finding max/min average in mapred.tmp, 
 * bases result from current_query 
 *
-* @param result Pointer of sinfo to store result in
+* @param args Pointer to rargs container for reduce args
 */
 static void reduce_avg(rargs *args) {
     sinfo *result = args->result;
@@ -491,7 +486,7 @@ static void reduce_avg(rargs *args) {
 /**
 * (E) Reduce function for finding country with the most users
 *
-* @param result Pointer of sinfo to store result in
+* @param args Pointer to rargs container for reduce args
 */
 static void reduce_max_country(rargs *args) {
     sinfo *result = args->result;
