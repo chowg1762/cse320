@@ -10,6 +10,7 @@
 #define CCOUNT_SIZE 675
 #define FILENAME_SIZE 256
 #define LINE_SIZE 48
+#define PACKET_SIZE 64
 #define THREADNAME_SIZE 7
 #define TIMESTAMP_SIZE 9
 
@@ -33,11 +34,19 @@ typedef struct sinfo {
 typedef struct margs {
     int nfiles;
     sinfo *head;
-    int sockfd;
+    struct pollfd pollfd;
 } margs;
 
-// Semaphore for file access
-extern sem_t mut_;
+/**
+* Reduce arguments container, tells the reduce thread how many
+* threads it is responsible for, provides it with an sinfo to
+* track results with, and an array of socket file descriptors
+*/
+typedef struct rargs {
+    int nthreads;
+    sinfo *result;
+    struct pollfd *pollfds;
+} rargs;
 
 /********* Map functions *********/
 
@@ -94,7 +103,7 @@ static void* reduce(void* v);
 * @param head Pointer to head of sinfo linked list
 * @return Pointer to sinfo node with max/min average 
 */
-static void reduce_avg(sinfo *head);
+static void reduce_avg(rargs *args);
 
 /**
 * (E) Reduce function for finding country with the most users
@@ -102,7 +111,7 @@ static void reduce_avg(sinfo *head);
 * @param head Pointer to head of sinfo linked list
 * @return Pointer todo
 */
-static void reduce_max_country(sinfo *head);
+static void reduce_max_country(rargs *args);
 
 /**
 * Makes a linked list of sinfo nodes, returns the length of the list

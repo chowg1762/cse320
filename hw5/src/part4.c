@@ -62,9 +62,11 @@ int part4(size_t nthreads) {
         }
     }
 
-    // Join all map threads 
+    // Join all used map threads 
     for (int i = 0; i < nthreads; ++i) {
-        pthread_join(t_readers[i], NULL);
+        if (args[i].nfiles) {
+            pthread_join(t_readers[i], NULL);
+        }
     }
 
     // Cancel reduce thread since all map threads have been joined

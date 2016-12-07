@@ -58,9 +58,11 @@ int part3(size_t nthreads) {
         }
     }
 
-    // Join all map threads 
+    // Join all used map threads 
     for (int i = 0; i < nthreads; ++i) {
-        pthread_join(t_readers[i], NULL);
+        if (args[i].nfiles) {
+            pthread_join(t_readers[i], NULL);
+        }
     }
 
     // Cancel reduce thread since all map threads have been joined
@@ -153,7 +155,7 @@ static void s_writeinfo(sinfo *info) {
         fprintf(mrf_write, "%s %lf\n", info->filename, info->average);
     } else {
         fprintf(mrf_write, "%d %d\n", info->einfo[(int)info->average], 
-        (int)info->average);;
+        (int)info->average);
     }
     fflush(mrf_write);
     sem_post(&mut_file);

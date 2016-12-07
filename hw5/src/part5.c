@@ -2,7 +2,6 @@
 #include "part5.h"
 
 int part5(size_t nthreads) {
-    sem_init(&mut_file, 0, 1);
 
     // Create linked list of sinfo nodes, nfiles long
     sinfo *head = NULL, *cursor;
@@ -10,44 +9,53 @@ int part5(size_t nthreads) {
     cursor = head;
 
     // Create socket pairs for connecting maps to reduce
-    int sockfds[nthreads];
+    struct pollfd redpfds[nthreads], mappfds[nthreads];
     for (int i = 0; i < nthreads; ++i) {
-        sockfds[i] = socket(AF_LOCAL, SOCK_STREAM, 0);
+        // Reduce end
+        redpfds[i].fd = socket(AF_LOCAL, SOCK_STREAM, 0);
+        redpfds[i].events = POLLIN;
+        // Map end
+        mappfds[i].fd = redpfds[i].fd;
+        mappfds[i].events = POLLOUT;
     }
 
     // Spawn reduce thread
     char threadname[THREADNAME_SIZE] = {'r','e','d','u','c','e','\0'};
     pthread_t t_reduce;
+    rargs redargs;
+    redargs.nthreads = nthreads;
+    redargs.pollfds = redpfds;
     sinfo result;
+    redargs.result = &result;
     if (current_query == E) {
         result.einfo = calloc(CCOUNT_SIZE, sizeof(int));
     }
-    pthread_create(&t_reduce, NULL, reduce, &result);
+    pthread_create(&t_reduce, NULL, reduce, &redargs);
     pthread_setname_np(t_reduce, threadname);
     
     // Divide sinfo list equally between map threads
     pthread_t t_readers[nthreads];
-    margs args[nthreads];
+    margs mapargs[nthreads];
     int nfiles_per = nfiles / nthreads, nfiles_rem = nfiles % nthreads;
     for (int i = 0; i < nthreads; ++i) {
 
         // Create socket for map reduce communication
-        args[i].sockfd = sockfds[i];
+        mapargs[i].pollfd = mappfds[i];
         
         // Set nfiles
-        args[i].nfiles = nfiles_per;
+        mapargs[i].nfiles = nfiles_per;
         if (i < nfiles_rem) {
-            ++args[i].nfiles;
+            ++mapargs[i].nfiles;
         }
-        if (args[i].nfiles == 0) {
+        if (mapargs[i].nfiles == 0) {
             break;
         }
 
         // Set new sub-list head
-        args[i].head = cursor;
+        mapargs[i].head = cursor;
 
-        // Create and name map thread
-        pthread_create(&t_readers[i], NULL, map, &args[i]);
+        // Spawn and name map thread
+        pthread_create(&t_readers[i], NULL, map, &mapargs[i]);
         sprintf(threadname, "%s%d", "map", i + 2);
         pthread_setname_np(t_readers[i], threadname);
 
@@ -55,7 +63,7 @@ int part5(size_t nthreads) {
         if (i + 1 == nthreads) {
             break;
         }
-        for (int j = 0; j < args[i].nfiles; ++j) {
+        for (int j = 0; j < mapargs[i].nfiles; ++j) {
             cursor = cursor->next;
         }
     }
@@ -68,10 +76,6 @@ int part5(size_t nthreads) {
     // Cancel reduce thread since all map threads have been joined
     pthread_cancel(t_reduce);
     pthread_join(t_reduce, NULL);
-
-    // Close and delete mapred.tmp file
-    fclose(mrf_write), fclose(mrf_read);
-    unlink(MR_FILENAME);
 
     // Restore resources
     sinfo *prev;
@@ -148,30 +152,56 @@ static long stol(char *str, int n) {
     return num;
 }
 
-// Semaphore locking wrapper for fprintf to mapred.tmp
-static void s_writeinfo(sinfo *info) {
-    sem_wait(&mut_file);
+// Socket writer using poll to wait for availability
+static void s_writeinfo(struct pollfd pfd, sinfo *info) {
+    char packet[PACKET_SIZE];
+    memset(packet, 0, PACKET_SIZE);
+    
+    // Create packet to send
     if (current_query != E) {
-        fprintf(mrf_write, "%s %lf\n", info->filename, info->average);
+        sprintf(packet, "%s %lf\n", info->filename, info->average);
     } else {
-        fprintf(mrf_write, "%d %d\n", info->einfo[(int)info->average], 
-        (int)info->average);;
+        sprintf(packet, "%d %d\n", info->einfo[(int)info->average], 
+        (int)info->average);
     }
-    fflush(mrf_write);
-    sem_post(&mut_file);
+    
+    // Wait for availability to write
+    if (poll(&pfd, 1, 10000) <= 0) {
+        perror("Packet writing timeout/error...");
+        exit(EXIT_FAILURE);
+    }
+
+    // Write packet to socket
+    send(pfd.fd, packet, PACKET_SIZE, 0);
 }
 
-// Query based reader for reduce
-static int s_fscanf(void *a, void *b) {
-    int r;
-    
-    if (current_query != E) {
-        r = fscanf(mrf_read, "%s %lf\n", (char*)a, (double*)b);
-    } else {
-        r = fscanf(mrf_read, "%d %d\n", (int*)a, (int*)b);
+// Socket reader using poll to wait for availability 
+static int s_readinfo(struct pollfd *pfds, int npfds, void *a, void *b) {
+    char packet[PACKET_SIZE];
+    memset(packet, 0, PACKET_SIZE);
+    // Wait for events on sockets
+    if (poll(pfds, npfds, 10) <= 0) {
+        // Timeout or error
+        return 0;
     }
 
-    return r;
+    // Check where event occurred
+    for (int i = 0; i < npfds; ++i) {
+        if (pfds[i].revents & POLLIN) {
+            // Read packet from socket
+            recv(pfds[i].fd, packet, PACKET_SIZE, 0);
+            break;
+        }
+    }
+
+    // Parse info from packet
+    if (current_query != E) {
+        sscanf(packet, "%s %lf\n", (char*)a, (double*)b);
+    } else {
+        sscanf(packet, "%d %d\n", (int*)a, (int*)b);
+    }
+
+    return 1;
 }
 
 /**
@@ -215,7 +245,7 @@ static void* map(void* v) {
         (*f_map)(info);
 
         // Write file info to mapred.tmp
-        s_writeinfo(info);
+        s_writeinfo(args->pollfd, info);
 
         // Close file
         fclose(info->file);
@@ -371,10 +401,11 @@ static void reduce_cancel(void *v) {
 * @return Pointer to sinfo containing result
 */
 static void *reduce(void *v) {
-    pthread_cleanup_push(&reduce_cancel, v);
+    rargs *args = v;
+    pthread_cleanup_push(&reduce_cancel, args->result);
 
     // Find reduce for current query
-    void (*f_reduce)(sinfo*);
+    void (*f_reduce)(rargs*);
     if (current_query == E) {
         f_reduce = &reduce_max_country;
     } else {
@@ -382,8 +413,7 @@ static void *reduce(void *v) {
     }
 
     // Find query result
-    sinfo *result = v;
-    (*f_reduce)(result);
+    (*f_reduce)(args);
 
      pthread_cleanup_pop(1);
      return NULL;
@@ -417,7 +447,8 @@ static char avgcmp(double a, double b) {
 *
 * @param result Pointer of sinfo to store result in
 */
-static void reduce_avg(sinfo *result) {
+static void reduce_avg(rargs *args) {
+    sinfo *result = args->result;
     char res, filename[FILENAME_SIZE];
     double avg;
     if (current_query == A || current_query == C) {
@@ -429,10 +460,9 @@ static void reduce_avg(sinfo *result) {
     char line[LINE_SIZE];
     memset(line, 0, LINE_SIZE);
     while (1) {
-        // Want to read - wait for lock to free 
-        sem_wait(&mut_file);
         // Read available info from mapred.tmp
-        while (s_fscanf(filename, &avg) != EOF) {
+        while (s_readinfo(args->pollfds, args->nthreads, 
+        filename, &avg) != 0) {
             // Block canceling since there is an entry
             pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
             // Read line of file and compare with current selection
@@ -449,8 +479,6 @@ static void reduce_avg(sinfo *result) {
                 }
             }
         }
-        // Done reading - release lock
-        sem_post(&mut_file);
         // Enable canceling
         pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
     }
@@ -461,13 +489,14 @@ static void reduce_avg(sinfo *result) {
 *
 * @param result Pointer of sinfo to store result in
 */
-static void reduce_max_country(sinfo *result) {
+static void reduce_max_country(rargs *args) {
+    sinfo *result = args->result;
     char line[LINE_SIZE];
     int code = -1, count = -1;
     memset(line, 0, LINE_SIZE);
     while (1) {
         // Read line of file and add count to index code 
-        while (s_fscanf(&count, &code) != EOF) {
+        while (s_readinfo(args->pollfds, args->nthreads, &count, &code) != 0) {
 
             // Block canceling since there is an entry
             pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
