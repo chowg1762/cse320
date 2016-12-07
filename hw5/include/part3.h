@@ -1,26 +1,40 @@
-#ifndef PART3_H
-#define PART3_H
+#ifndef MAPRED_H
+#define MAPRED_H
 
-#include <time.h>
 #include <semaphore.h>
+#include <time.h>
 
-#define MR_FILENAME "mapred.tmp"
-#define FILENAME_SIZE 256
-#define THREADNAME_SIZE 7
-#define LINE_SIZE 48
 #define CCOUNT_SIZE 675
+#define FILENAME_SIZE 256
+#define LINE_SIZE 48
+#define MR_FILENAME "mapred.tmp"
+#define THREADNAME_SIZE 7
 #define TIMESTAMP_SIZE 9
 
-extern sem_t mut_file;
-
+/**
+* Website visit info container, each map call will 
+* store its read data to this struct 
+*/
 typedef struct sinfo {
     FILE *file;
     char filename[FILENAME_SIZE];
     double average;
     unsigned int *einfo;
-    void *t_return;
     struct sinfo *next;
 } sinfo;
+
+/**
+* Map arguments container, tells the map thread how many
+* files it is responsible for, and provides it with a list
+* to store its read info
+*/
+typedef struct margs {
+    int nfiles;
+    sinfo *head;
+} margs;
+
+// Semaphore for file access
+extern sem_t mut_file;
 
 /********* Map functions *********/
 

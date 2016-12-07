@@ -8,8 +8,9 @@ int part3(size_t nthreads) {
     sem_init(&mut_file, 0, 1);
 
     // Create linked list of sinfo nodes, nfiles long
-    sinfo *head;
+    sinfo *head = NULL, *cursor;
     int nfiles = make_files_list(&head);
+    cursor = head;
 
     // Create mapred.tmp for mapping and reducing communication
     mrf_write = fopen(MR_FILENAME, "a");
@@ -25,37 +26,38 @@ int part3(size_t nthreads) {
     pthread_create(&t_reduce, NULL, reduce, &result);
     pthread_setname_np(t_reduce, threadname);
     
-    // For all files use an available map thread, joining it after completion
-    pthread_t t_maps[nthreads];
-    int rem_files = nfiles;
-    char rel_filepath[FILENAME_SIZE];
-    sprintf(rel_filepath, "./%s/", DATA_DIR);
-    sinfo *marker, *cursor = head;
-    while (rem_files > 0) {
-        // Spawn threads: nthreads or rem_files
-        marker = cursor;
-        for (int i = 0; i < rem_files && i < nthreads; ++i) {
-            strcpy(rel_filepath + 7, cursor->filename);
-            cursor->file = fopen(rel_filepath, "r");
-            if (cursor->file == NULL) {
-                exit(EXIT_FAILURE);
-            }
-
-            // Create and name map thread
-            pthread_create(&t_maps[i], NULL, map, cursor);
-            sprintf(threadname, "%s%d", "map", i + 2);
-            pthread_setname_np(t_maps[i], threadname);
-            cursor = cursor->next;
+    // Divide sinfo list equally between map threads
+    pthread_t t_readers[nthreads];
+    margs args[nthreads];
+    int nfiles_per = nfiles / nthreads, nfiles_rem = nfiles % nthreads;
+    for (int i = 0; i < nthreads; ++i) {
+        
+        // Set nfiles
+        args[i].nfiles = nfiles_per;
+        if (i < nfiles_rem) {
+            ++args[i].nfiles;
         }
 
-        // Join all used threads
-        cursor = marker;
-        for (int i = 0; i < rem_files && i < nthreads; ++i) {
-            pthread_join(t_maps[i], &(cursor->t_return));
+        // Set new sub-list head
+        args[i].head = cursor;
+
+        // Create and name map thread
+        pthread_create(&t_readers[i], NULL, map, &args[i]);
+        sprintf(threadname, "%s%d", "map", i + 2);
+        pthread_setname_np(t_readers[i], threadname);
+
+        // Move to next sub-list head
+        if (i + 1 == nthreads) {
+            break;
+        }
+        for (int j = 0; j < args[i].nfiles; ++j) {
             cursor = cursor->next;
         }
+    }
 
-        rem_files -= nthreads;
+    // Join all map threads 
+    for (int i = 0; i < nthreads; ++i) {
+        pthread_join(t_readers[i], NULL);
     }
 
     // Cancel reduce thread since all map threads have been joined
@@ -175,7 +177,8 @@ static int s_fscanf(void *a, void *b) {
 * @return Pointer to sinfo struct
 */
 static void* map(void* v) {
-    sinfo *info = v;
+    margs *args = v;
+    sinfo *info = args->head;
     
     // Find map for current query
     void (*f_map)(sinfo*);
@@ -192,14 +195,28 @@ static void* map(void* v) {
             f_map = &map_max_country;
     }
 
-    // Call map for query
-    (*f_map)(info);
+    // For all files assigned to this thread
+    char filepath[FILENAME_SIZE];
+    sprintf(filepath, "./%s/", DATA_DIR);
+    for (int i = 0; i < args->nfiles; ++i) {
+        // Open file
+        strcpy(filepath + 7, info->filename);
+        info->file = fopen(filepath, "r");
+        if (info->file == NULL) {
+            exit(EXIT_FAILURE);
+        }
 
-    // Write query info to mapred.tmp
-    s_writeinfo(info);
+        // Call map for query
+        (*f_map)(info);
 
-    fclose(info->file);
-    
+        // Write file info to mapred.tmp
+        s_writeinfo(info);
+
+        // Close file
+        fclose(info->file);
+        info = info->next;
+    }
+
     pthread_exit(NULL);
     return NULL;
 }
@@ -340,8 +357,6 @@ static void reduce_cancel(void *v) {
         PART_STRINGS[current_part], QUERY_STRINGS[current_query],
         result->average, result->filename);
     fflush(NULL);
-
-    pthread_exit(EXIT_SUCCESS);
 }
 
 /**

@@ -14,9 +14,13 @@ typedef struct sinfo {
     char filename[FILENAME_SIZE];
     double average;
     unsigned int *einfo;
-    void *t_return;
     struct sinfo *next;
 } sinfo;
+
+typedef struct margs {
+    int nfiles;
+    sinfo *head;
+} margs;
 
 /********* Map functions *********/
 

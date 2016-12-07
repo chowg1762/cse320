@@ -26,10 +26,8 @@ int part1() {
     }
 
     // Join all threads
-    cursor = head;
     for (int i = 0; i < nfiles; ++i) {
-        pthread_join(t_readers[i], &(cursor->t_return));
-        cursor = cursor->next;
+        pthread_join(t_readers[i], NULL);
     }
 
     // Find result of query

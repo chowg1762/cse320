@@ -6,7 +6,7 @@ int nproducers;
 sinfo *buf_head;
 
 int part4(size_t nthreads) {
-
+    // Handle bad calls
     if (nthreads < 1) {
         return -1;
     }
@@ -15,8 +15,9 @@ int part4(size_t nthreads) {
     sem_init(&mut_pdcr, 0, 1), sem_init(&mut_buf, 0, 1);
 
     // Create linked list of sinfo nodes, nfiles long
-    sinfo *head;
+    sinfo *head = NULL, *cursor;
     int nfiles = make_files_list(&head);
+    cursor = head;
 
     // Spawn and name reduce thread
     pthread_t t_reduce;
@@ -29,36 +30,38 @@ int part4(size_t nthreads) {
     pthread_create(&t_reduce, NULL, reduce, &result);
     pthread_setname_np(t_reduce, threadname);
 
-    // For all files use an available map thread, joining it after completion
-    pthread_t t_maps[nthreads];
-    int rem_files = nfiles;
-    char rel_filepath[FILENAME_SIZE];
-    sprintf(rel_filepath, "./%s/", DATA_DIR);
-    sinfo *cursor = head;
-    // For all files in data dir
-    while (rem_files > 0) {
-        // Spawn threads: nthreads or rem_files
-        for (int i = 0; i < rem_files && i < nthreads; ++i) {
-            // Open file to map
-            strcpy(rel_filepath + 7, cursor->filename);
-            cursor->file = fopen(rel_filepath, "r");
-            if (cursor->file == NULL) {
-                exit(EXIT_FAILURE);
-            }
+    // Divide sinfo list equally between map threads
+    pthread_t t_readers[nthreads];
+    margs args[nthreads];
+    int nfiles_per = nfiles / nthreads, nfiles_rem = nfiles % nthreads;
+    for (int i = 0; i < nthreads; ++i) {
+        
+        // Set nfiles
+        args[i].nfiles = nfiles_per;
+        if (i < nfiles_rem) {
+            ++args[i].nfiles;
+        }
 
-            // Spawn and name map thread, passing an sinfo node
-            pthread_create(&t_maps[i], NULL, map, cursor);
-            sprintf(threadname, "%s%d", "map", i);
-            pthread_setname_np(t_maps[i], threadname);
+        // Set new sub-list head
+        args[i].head = cursor;
+
+        // Create and name map thread
+        pthread_create(&t_readers[i], NULL, map, &args[i]);
+        sprintf(threadname, "%s%d", "map", i + 2);
+        pthread_setname_np(t_readers[i], threadname);
+
+        // Move to next sub-list head
+        if (i + 1 == nthreads) {
+            break;
+        }
+        for (int j = 0; j < args[i].nfiles; ++j) {
             cursor = cursor->next;
         }
+    }
 
-        // Join all used threads
-        for (int i = 0; i < rem_files && i < nthreads; ++i) {
-            pthread_join(t_maps[i], NULL);
-        }
-
-        rem_files -= nthreads;
+    // Join all map threads 
+    for (int i = 0; i < nthreads; ++i) {
+        pthread_join(t_readers[i], NULL);
     }
 
     // Cancel reduce thread since all map threads have been joined
@@ -146,7 +149,6 @@ static void s_storeinfo(sinfo *info) {
     sem_wait(&mut_pdcr);
     if (++nproducers == 1) {
         // Only producer here - wait for access lock
-        //printf("Locked\n");
         sem_wait(&mut_buf);
     }
     // Let others change nproducers
@@ -159,7 +161,6 @@ static void s_storeinfo(sinfo *info) {
     sem_wait(&mut_pdcr);
     if (--nproducers == 0) {
         // Only producer here - free access lock
-        //printf("Unlocked\n");
         sem_post(&mut_buf);
     }
     sem_post(&mut_pdcr);
@@ -193,7 +194,8 @@ static int s_consumeinfo(sinfo **info) {
 * @return Pointer to sinfo struct
 */
 static void* map(void* v) {
-    sinfo *info = v;
+    margs *args = v;
+    sinfo *info = args->head, *next;
     
     // Find map for current query
     void (*f_map)(sinfo*);
@@ -210,15 +212,29 @@ static void* map(void* v) {
             f_map = &map_max_country;
     }
 
-    // Call map for query
-     //printf("Pre call: %s\n", info->filename);
-    (*f_map)(info);
-     //printf("Post call: %s\n", info->filename);
+    // For all files assigned to this thread
+    char filepath[FILENAME_SIZE];
+    sprintf(filepath, "./%s/", DATA_DIR);
+    for (int i = 0; i < args->nfiles; ++i) {
+        // Open file
+        //printf("%d\n", args->nfiles);
+        strcpy(filepath + 7, info->filename);
+        info->file = fopen(filepath, "r");
+        if (info->file == NULL) {
+            exit(EXIT_FAILURE);
+        }
 
-    // Store info to global buffer list
-    s_storeinfo(info);
+        // Call map for query
+        (*f_map)(info);
 
-    fclose(info->file);
+        // Store file info to global buffer list
+        next = info->next;
+        s_storeinfo(info);
+
+        // Close file
+        fclose(info->file);
+        info = next;
+    }
     
     pthread_exit(NULL);
     return NULL;
