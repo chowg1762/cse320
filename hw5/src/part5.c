@@ -9,13 +9,15 @@ int part5(size_t nthreads) {
     cursor = head;
 
     // Create socket pairs for connecting maps to reduce
+    int socketpairs[nthreads << 1];
     struct pollfd redpfds[nthreads], mappfds[nthreads];
     for (int i = 0; i < nthreads; ++i) {
+        socketpair(AF_LOCAL, SOCK_STREAM, 0, socketpairs + (i << 1));
         // Reduce end
-        redpfds[i].fd = socket(AF_LOCAL, SOCK_STREAM, 0);
+        redpfds[i].fd = socketpairs[i << 1];
         redpfds[i].events = POLLIN;
         // Map end
-        mappfds[i].fd = redpfds[i].fd;
+        mappfds[i].fd = socketpairs[(i << 1) + 1];
         mappfds[i].events = POLLOUT;
     }
 
@@ -184,7 +186,7 @@ static int s_readinfo(struct pollfd *pfds, int npfds, void *a, void *b) {
         // Timeout or error
         return 0;
     }
-
+    
     // Check where event occurred
     for (int i = 0; i < npfds; ++i) {
         if (pfds[i].revents & POLLIN) {
@@ -242,7 +244,9 @@ static void* map(void* v) {
         }
 
         // Call map for query
+        // printf("Pre call %s\n", info->filename);
         (*f_map)(info);
+        // printf("Post call %s\n", info->filename);
 
         // Write file info to mapred.tmp
         s_writeinfo(args->pollfd, info);
