@@ -80,6 +80,9 @@ int part5(size_t nthreads) {
     pthread_join(t_reduce, NULL);
 
     // Restore resources
+    for (int i = 0; i < nthreads << 1; ++i) {
+        close(socketpairs[i]);
+    }
     sinfo *prev;
     cursor = head;
     if (current_query == E) {
