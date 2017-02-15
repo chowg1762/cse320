@@ -102,7 +102,7 @@ char *exec_status[2] = {"Running", "Stopped"};
 struct builtin {
     char label[5];
     int(func*)(int, char**);
-}
+};
 struct builtin builtins[12];
 
 #endif
